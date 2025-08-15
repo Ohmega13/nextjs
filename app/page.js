@@ -1,4 +1,6 @@
 // app/page.js
+import Link from 'next/link';
+
 export default function Home() {
   const menus = [
     { href: "/clients", title: "ลงทะเบียนลูกดวง", desc: "บันทึกข้อมูลลูกดวงใหม่", emoji: "📝" },
@@ -13,15 +15,15 @@ export default function Home() {
       {/* Navbar */}
       <header className="border-b border-slate-200 bg-white/70 backdrop-blur">
         <div className="mx-auto max-w-6xl px-4 h-16 flex items-center justify-between">
-          <a href="/" className="font-semibold text-lg tracking-wide">
+          <Link href="/" className="font-semibold text-lg tracking-wide">
             Destiny Decode <span className="text-indigo-600">Tarot</span>
-          </a>
+          </Link>
           <nav className="hidden md:flex gap-6 text-sm">
-            <a href="/clients" className="hover:text-indigo-600">ลงทะเบียนลูกดวง</a>
-            <a href="/reading" className="hover:text-indigo-600">เริ่มดูดวง</a>
-            <a href="/history" className="hover:text-indigo-600">ประวัติ</a>
-            <a href="/clients-manage" className="hover:text-indigo-600">ประวัติลูกดวง</a>
-            <a href="/backup" className="hover:text-indigo-600">Backup</a>
+            <Link href="/clients" className="hover:text-indigo-600">ลงทะเบียนลูกดวง</Link>
+            <Link href="/reading" className="hover:text-indigo-600">เริ่มดูดวง</Link>
+            <Link href="/history" className="hover:text-indigo-600">ประวัติ</Link>
+            <Link href="/clients-manage" className="hover:text-indigo-600">ประวัติลูกดวง</Link>
+            <Link href="/backup" className="hover:text-indigo-600">Backup</Link>
           </nav>
         </div>
       </header>
@@ -36,18 +38,18 @@ export default function Home() {
             ลงทะเบียนลูกดวง • เริ่มดูดวง • บันทึกประวัติ • สำรองข้อมูล — ทั้งหมดในที่เดียว
           </p>
           <div className="mt-6 flex gap-3">
-            <a
+            <Link
               href="/reading"
               className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2.5 text-white font-medium hover:bg-indigo-700"
             >
               เริ่มดูดวงเลย
-            </a>
-            <a
+            </Link>
+            <Link
               href="/clients"
               className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 font-medium hover:bg-slate-50"
             >
               เพิ่มลูกดวงใหม่
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -55,7 +57,7 @@ export default function Home() {
       {/* Menu cards */}
       <section className="mx-auto max-w-6xl px-4 pb-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {menus.map((m) => (
-          <a
+          <Link
             key={m.href}
             href={m.href}
             className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow"
@@ -68,7 +70,7 @@ export default function Home() {
             <div className="mt-4 text-sm font-medium text-indigo-600">
               ไปที่หน้า {m.title} →
             </div>
-          </a>
+          </Link>
         ))}
       </section>
 
