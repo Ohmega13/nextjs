@@ -1,4 +1,3 @@
-// app/members/MembersClient.tsx  (CLIENT)
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -59,7 +58,6 @@ export default function MembersClient() {
 
     fetchRows();
 
-    // ถ้า auth เปลี่ยน ให้รีเฟรชรายการ
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       if (!ignore) fetchRows();
     });
@@ -75,7 +73,6 @@ export default function MembersClient() {
     const token = session?.access_token;
     if (!token) return;
 
-    // optimistic update
     setRows(prev =>
       prev.map(x =>
         x.user_id === r.user_id
@@ -94,7 +91,6 @@ export default function MembersClient() {
     });
 
     if (!res.ok) {
-      // rollback
       setRows(prev =>
         prev.map(x =>
           x.user_id === r.user_id

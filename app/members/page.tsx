@@ -1,4 +1,4 @@
-// app/members/page.tsx  (SERVER)
+// app/members/page.tsx
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
