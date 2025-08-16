@@ -1,10 +1,10 @@
 // app/login/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { supabase } from '../lib/supabaseClient'; // << แก้เป็น relative import
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,16 +14,19 @@ export default function LoginPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // ถ้ามี session อยู่แล้ว ให้เด้งออกจากหน้า login
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) router.replace('/');
+    });
+  }, [router]);
+
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true); setErr(null); setMsg(null);
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email, password
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) { setErr(error.message); return; }
-
-    // สำเร็จ → กลับหน้าเดิมหรือหน้า dashboard
     setMsg('เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าแรก…');
     router.replace('/');
   };
@@ -31,7 +34,8 @@ export default function LoginPage() {
   const signInWithMagicLink = async () => {
     setLoading(true); setErr(null); setMsg(null);
     const { error } = await supabase.auth.signInWithOtp({
-      email, options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined }
+      email,
+      options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined }
     });
     setLoading(false);
     if (error) { setErr(error.message); return; }
@@ -87,7 +91,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !email || !password}
               className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-white font-medium hover:bg-indigo-700 disabled:opacity-60"
             >
               {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
