@@ -1,16 +1,25 @@
-type Client = {
-  id: string;            // uid() (ใช้เป็น "โฟลเดอร์เสมือน")
-  name: string; nickname?: string; contact?: string;
-  birthDate?: string; birthTime?: string; birthPlace?: string; timezone?: string;
-  gender?: string; createdAt: string;
-}
+// types/index.ts
 
-type History = {
+export type Client = {
+  id: string;            // uid() (ใช้เป็น "โฟลเดอร์เสมือน")
+  name: string;
+  nickname?: string;
+  contact?: string;
+  birthDate?: string;
+  birthTime?: string;
+  birthPlace?: string;
+  timezone?: string;
+  gender?: string;
+  createdAt: string;
+};
+
+export type ReadingRecord = {
   id: string;
   date: string;
   clientId: string;      // เปลี่ยนจากชื่อ → ใช้ id อ้างอิงตรง
   clientName: string;    // เก็บซ้ำเพื่อแสดงเร็ว
-  topic: string; mode: string;
+  topic: string;
+  mode: string;
 
   // Tarot
   cards?: { name: string; reversed?: boolean }[];
@@ -42,6 +51,6 @@ type History = {
       love: string[];
       health: string[];
       future: string[];
-    }
+    };
   };
-}
+};
