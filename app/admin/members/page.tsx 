@@ -1,0 +1,60 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+
+type ProfileRow = {
+  user_id: string;
+  role: string | null;
+  display_name: string | null;
+};
+
+export default function MembersPage() {
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('user_id, role, display_name');
+
+      if (error) {
+        console.error(error);
+      } else {
+        setProfiles(data as ProfileRow[]);
+      }
+      setLoading(false);
+    };
+
+    fetchProfiles();
+  }, []);
+
+  return (
+    <div className="p-6">
+      <h1 className="text-xl font-bold mb-4">สมาชิก</h1>
+      {loading ? (
+        <p>กำลังโหลดข้อมูล…</p>
+      ) : (
+        <table className="w-full border border-slate-200 text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-left">
+              <th className="p-2 border">User ID</th>
+              <th className="p-2 border">ชื่อ</th>
+              <th className="p-2 border">Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profiles.map((p) => (
+              <tr key={p.user_id}>
+                <td className="p-2 border">{p.user_id}</td>
+                <td className="p-2 border">{p.display_name ?? '-'}</td>
+                <td className="p-2 border">{p.role ?? '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
