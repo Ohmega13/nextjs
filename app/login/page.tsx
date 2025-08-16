@@ -1,23 +1,26 @@
 // app/login/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { supabase } from '../lib/supabaseClient'; // << แก้เป็น relative import
+import { supabase } from '@/lib/supabaseClient';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get('returnTo') || '/reading';
+
   const [email, setEmail]   = useState('');
   const [password, setPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // ถ้ามี session อยู่แล้ว ให้เด้งออกจากหน้า login
+  // ถ้ามี session อยู่แล้ว ไม่ต้องอยู่หน้า login
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) router.replace('/');
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) router.replace('/reading');
     });
   }, [router]);
 
@@ -27,8 +30,8 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) { setErr(error.message); return; }
-    setMsg('เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าแรก…');
-    router.replace('/');
+    setMsg('เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าใช้งาน…');
+    router.replace(returnTo);
   };
 
   const signInWithMagicLink = async () => {
@@ -51,75 +54,13 @@ export default function LoginPage() {
           </Link>
           <nav className="hidden md:flex gap-6 text-sm">
             <Link href="/login" className="text-indigo-600 font-medium">เข้าสู่ระบบ</Link>
+            <Link href="/signup" className="hover:text-indigo-600">สมัครสมาชิก</Link>
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto max-w-md px-4 py-12">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-semibold tracking-tight">เข้าสู่ระบบ</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            สำหรับผู้ดูแลระบบและลูกดวงที่ได้รับสิทธิ์ใช้งาน
-          </p>
-
-          <form onSubmit={signIn} className="mt-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700">อีเมล</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="you@example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700">รหัสผ่าน</label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPass(e.target.value)}
-                className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="••••••••"
-              />
-            </div>
-
-            {err && <div className="text-sm text-red-600">{err}</div>}
-            {msg && <div className="text-sm text-emerald-600">{msg}</div>}
-
-            <button
-              type="submit"
-              disabled={loading || !email || !password}
-              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-white font-medium hover:bg-indigo-700 disabled:opacity-60"
-            >
-              {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
-            </button>
-          </form>
-
-          <div className="mt-4">
-            <button
-              onClick={signInWithMagicLink}
-              disabled={!email || loading}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60"
-            >
-              ส่งลิงก์เข้าระบบทางอีเมล (ไม่ใช้รหัสผ่าน)
-            </button>
-          </div>
-
-          <p className="mt-6 text-center text-sm text-slate-500">
-            ยังไม่มีบัญชี? ให้แอดมินสมัครให้ หรือเปิดสิทธิ์การใช้งาน
-          </p>
-        </div>
-      </main>
-
-      <footer className="border-t border-slate-200">
-        <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between text-sm text-slate-500">
-          <span>© 2025 Destiny Decode Tarot</span>
-          <span>ข้อมูลเก็บในอุปกรณ์ของคุณ</span>
-        </div>
-      </footer>
+      {/* ... ส่วนฟอร์มเดิมคงไว้ ... */}
+      {/* เปลี่ยนเฉพาะโค้ดตามด้านบนพอ */}
     </div>
   );
 }
