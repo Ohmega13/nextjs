@@ -3,13 +3,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '../lib/supabaseClient'; // ใช้ relative import
 
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnTo = searchParams.get('returnTo') || '/reading';
+  const returnTo = searchParams?.get('returnTo') ?? '/reading'; // <- กัน null ที่นี่
 
   const [email, setEmail]   = useState('');
   const [password, setPass] = useState('');
@@ -42,7 +42,7 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (error) { setErr(error.message); return; }
-    setMsg('ส่งลิงก์เข้าสู่ระบบไปที่อีเมลแล้ว กรุณาตรวจสอบกล่องจดหมาย');
+    setMsg('ส่งลิงก์เข้าระบบไปที่อีเมลแล้ว กรุณาตรวจสอบกล่องจดหมาย');
   };
 
   return (
@@ -59,8 +59,69 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* ... ส่วนฟอร์มเดิมคงไว้ ... */}
-      {/* เปลี่ยนเฉพาะโค้ดตามด้านบนพอ */}
+      <main className="mx-auto max-w-md px-4 py-12">
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h1 className="text-2xl font-semibold tracking-tight">เข้าสู่ระบบ</h1>
+          <p className="mt-2 text-sm text-slate-600">สำหรับผู้ดูแลระบบและลูกดวงที่ได้รับสิทธิ์ใช้งาน</p>
+
+        <form onSubmit={signIn} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">อีเมล</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e)=>setEmail(e.target.value)}
+                className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700">รหัสผ่าน</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e)=>setPass(e.target.value)}
+                className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="••••••••"
+              />
+            </div>
+
+            {err && <div className="text-sm text-red-600">{err}</div>}
+            {msg && <div className="text-sm text-emerald-600">{msg}</div>}
+
+            <button
+              type="submit"
+              disabled={loading || !email || !password}
+              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-white font-medium hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
+            </button>
+          </form>
+
+          <div className="mt-4">
+            <button
+              onClick={signInWithMagicLink}
+              disabled={!email || loading}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60"
+            >
+              ส่งลิงก์เข้าระบบทางอีเมล (ไม่ใช้รหัสผ่าน)
+            </button>
+          </div>
+
+          <p className="mt-6 text-center text-sm text-slate-500">
+            ยังไม่มีบัญชี? ให้แอดมินสมัครให้ หรือเปิดสิทธิ์การใช้งาน
+          </p>
+        </div>
+      </main>
+
+      <footer className="border-t border-slate-200">
+        <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between text-sm text-slate-500">
+          <span>© 2025 Destiny Decode Tarot</span>
+          <span>ข้อมูลเก็บในอุปกรณ์ของคุณ</span>
+        </div>
+      </footer>
     </div>
   );
 }
