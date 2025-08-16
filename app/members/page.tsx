@@ -1,10 +1,10 @@
-// app/members/page.tsx
-"use client";
+'use client';
 
-export const dynamic = "force-dynamic"; // กัน Next.js export หน้านี้ทิ้งตอน build
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 
 type Row = {
   user_id: string;
@@ -32,16 +32,16 @@ export default function MembersPage() {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     if (!token) {
-      setErr("กรุณาเข้าสู่ระบบก่อน");
+      setErr('กรุณาเข้าสู่ระบบก่อน');
       setRows([]);
       setLoading(false);
       return;
     }
 
-    const res = await fetch("/api/admin/members", {
-      method: "GET",
+    const res = await fetch('/api/admin/members', {
+      method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
+      cache: 'no-store',
     });
 
     if (!res.ok) {
@@ -61,7 +61,7 @@ export default function MembersPage() {
 
     fetchRows();
 
-    // ถ้าสถานะ auth เปลี่ยน ให้รีเฟรชรายการ
+    // ถ้า auth เปลี่ยน ให้รีเฟรชรายการ
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       if (!ignore) fetchRows();
     });
@@ -72,11 +72,7 @@ export default function MembersPage() {
     };
   }, []);
 
-  const toggle = async (
-    r: Row,
-    key: "tarot" | "natal" | "palm",
-    next: boolean
-  ) => {
+  const toggle = async (r: Row, key: 'tarot' | 'natal' | 'palm', next: boolean) => {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     if (!token) return;
@@ -90,17 +86,17 @@ export default function MembersPage() {
       )
     );
 
-    const res = await fetch("/api/admin/members/permissions", {
-      method: "POST",
+    const res = await fetch('/api/admin/members/permissions', {
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({ user_id: r.user_id, key, value: next }),
     });
 
     if (!res.ok) {
-      // rollback ถ้า error
+      // rollback
       setRows(prev =>
         prev.map(x =>
           x.user_id === r.user_id
@@ -108,7 +104,7 @@ export default function MembersPage() {
             : x
         )
       );
-      alert("บันทึกสิทธิ์ไม่สำเร็จ");
+      alert('บันทึกสิทธิ์ไม่สำเร็จ');
     }
   };
 
@@ -119,11 +115,8 @@ export default function MembersPage() {
       {loading && <div>กำลังโหลดสมาชิก…</div>}
       {err && (
         <div className="text-red-600">
-          {err}{" "}
-          <button
-            onClick={fetchRows}
-            className="ml-2 underline text-indigo-600"
-          >
+          {err}{' '}
+          <button onClick={fetchRows} className="ml-2 underline text-indigo-600">
             ลองใหม่
           </button>
         </div>
@@ -147,28 +140,28 @@ export default function MembersPage() {
               {rows.map(r => (
                 <tr key={r.user_id} className="border-t">
                   <td className="px-3 py-2">{r.email}</td>
-                  <td className="px-3 py-2">{r.display_name ?? "-"}</td>
+                  <td className="px-3 py-2">{r.display_name ?? '-'}</td>
                   <td className="px-3 py-2">{r.role}</td>
                   <td className="px-3 py-2">{r.status}</td>
                   <td className="px-3 py-2 text-center">
                     <input
                       type="checkbox"
                       checked={!!r.permissions?.tarot}
-                      onChange={e => toggle(r, "tarot", e.target.checked)}
+                      onChange={e => toggle(r, 'tarot', e.target.checked)}
                     />
                   </td>
                   <td className="px-3 py-2 text-center">
                     <input
                       type="checkbox"
                       checked={!!r.permissions?.natal}
-                      onChange={e => toggle(r, "natal", e.target.checked)}
+                      onChange={e => toggle(r, 'natal', e.target.checked)}
                     />
                   </td>
                   <td className="px-3 py-2 text-center">
                     <input
                       type="checkbox"
                       checked={!!r.permissions?.palm}
-                      onChange={e => toggle(r, "palm", e.target.checked)}
+                      onChange={e => toggle(r, 'palm', e.target.checked)}
                     />
                   </td>
                 </tr>
