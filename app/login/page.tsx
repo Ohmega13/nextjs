@@ -1,111 +1,82 @@
 // app/login/page.tsx
+import { Suspense } from 'react';
+
+export default function Page() {
+  // ต้องมี Suspense ครอบ component ที่ใช้ useSearchParams
+  return (
+    <Suspense fallback={<div className="p-8">กำลังโหลด…</div>}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+/* ====== ด้านล่างคือหน้าจอจริง ====== */
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '../lib/supabaseClient'; // relative import
 
-function LoginForm() {
+function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams?.get('returnTo') ?? '/reading';
 
-  const [email, setEmail]   = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // ถ้ามี session อยู่แล้ว ไม่ต้องอยู่หน้า login
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace('/reading');
-    });
-  }, [router]);
-
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setErr(null); setMsg(null);
+    setLoading(true);
+    setErr(null);
+    setMsg(null);
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) { setErr(error.message); return; }
-    setMsg('เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าใช้งาน…');
+
+    if (error) {
+      setLoading(false);
+      setErr(error.message || 'เข้าสู่ระบบไม่สำเร็จ');
+      return;
+    }
+
+    // debug: ให้รู้ว่าได้ session จริง
+    const { data: me } = await supabase.auth.getUser();
+    setMsg(`เข้าสู่ระบบสำเร็จ (uid: ${me?.user?.id ?? 'unknown'}) กำลังพาไปหน้าใช้งาน…`);
+
+    // หน่วงสั้น ๆ ให้ client-set session เสร็จก่อน
+    await new Promise((r) => setTimeout(r, 300));
+
+    // ลอง soft navigation
     router.replace(returnTo);
+
+    // กันไม่ยอมไป: hard redirect ซ้ำ
+    window.location.assign(returnTo);
   };
 
   const signInWithMagicLink = async () => {
-    setLoading(true); setErr(null); setMsg(null);
+    setLoading(true);
+    setErr(null);
+    setMsg(null);
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined }
+      options: {
+        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
     });
+
     setLoading(false);
-    if (error) { setErr(error.message); return; }
+    if (error) {
+      setErr(error.message || 'ส่งลิงก์ไม่สำเร็จ');
+      return;
+    }
     setMsg('ส่งลิงก์เข้าสู่ระบบไปที่อีเมลแล้ว กรุณาตรวจสอบกล่องจดหมาย');
   };
 
-  return (
-    <main className="mx-auto max-w-md px-4 py-12">
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">เข้าสู่ระบบ</h1>
-        <p className="mt-2 text-sm text-slate-600">สำหรับผู้ดูแลระบบและลูกดวงที่ได้รับสิทธิ์ใช้งาน</p>
-
-        <form onSubmit={signIn} className="mt-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">อีเมล</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e)=>setEmail(e.target.value)}
-              className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="you@example.com"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">รหัสผ่าน</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e)=>setPass(e.target.value)}
-              className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-              placeholder="••••••••"
-            />
-          </div>
-
-          {err && <div className="text-sm text-red-600">{err}</div>}
-          {msg && <div className="text-sm text-emerald-600">{msg}</div>}
-
-          <button
-            type="submit"
-            disabled={loading || !email || !password}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-white font-medium hover:bg-indigo-700 disabled:opacity-60"
-          >
-            {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
-          </button>
-        </form>
-
-        <div className="mt-4">
-          <button
-            onClick={signInWithMagicLink}
-            disabled={!email || loading}
-            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60"
-          >
-            ส่งลิงก์เข้าระบบทางอีเมล (ไม่ใช้รหัสผ่าน)
-          </button>
-        </div>
-
-        <p className="mt-6 text-center text-sm text-slate-500">
-          ยังไม่มีบัญชี? <Link className="text-indigo-600 underline" href="/signup">สมัครสมาชิก</Link>
-        </p>
-      </div>
-    </main>
-  );
-}
-
-export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
       <header className="border-b border-slate-200 bg-white/70 backdrop-blur">
@@ -120,10 +91,64 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* ห่อ useSearchParams ด้วย Suspense */}
-      <Suspense fallback={<div className="mx-auto max-w-md px-4 py-12 text-slate-500">กำลังโหลด…</div>}>
-        <LoginForm />
-      </Suspense>
+      <main className="mx-auto max-w-md px-4 py-12">
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h1 className="text-2xl font-semibold tracking-tight">เข้าสู่ระบบ</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            สำหรับผู้ดูแลระบบและลูกดวงที่ได้รับสิทธิ์ใช้งาน
+          </p>
+
+          <form onSubmit={signIn} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">อีเมล</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700">รหัสผ่าน</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPass(e.target.value)}
+                className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="••••••••"
+              />
+            </div>
+
+            {err && <div className="text-sm text-red-600">{err}</div>}
+            {msg && <div className="text-sm text-emerald-600">{msg}</div>}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-white font-medium hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
+            </button>
+          </form>
+
+          <div className="mt-4">
+            <button
+              onClick={signInWithMagicLink}
+              disabled={!email || loading}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60"
+            >
+              ส่งลิงก์เข้าระบบทางอีเมล (ไม่ใช้รหัสผ่าน)
+            </button>
+          </div>
+
+          <p className="mt-6 text-center text-sm text-slate-500">
+            ยังไม่มีบัญชี? <Link href="/signup" className="text-indigo-600">สมัครสมาชิก</Link>
+          </p>
+        </div>
+      </main>
 
       <footer className="border-t border-slate-200">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between text-sm text-slate-500">
