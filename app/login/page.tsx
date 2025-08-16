@@ -1,19 +1,6 @@
-// app/login/page.tsx
-import { Suspense } from 'react';
-
-export default function Page() {
-  // ต้องมี Suspense ครอบ component ที่ใช้ useSearchParams
-  return (
-    <Suspense fallback={<div className="p-8">กำลังโหลด…</div>}>
-      <LoginInner />
-    </Suspense>
-  );
-}
-
-/* ====== ด้านล่างคือหน้าจอจริง ====== */
 'use client';
 
-import { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -21,7 +8,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnTo = searchParams?.get('returnTo') ?? '/reading';
+  const returnTo = searchParams?.get('returnTo') || '/reading';
 
   const [email, setEmail] = useState('');
   const [password, setPass] = useState('');
@@ -31,49 +18,25 @@ function LoginInner() {
 
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setErr(null);
-    setMsg(null);
+    setLoading(true); setErr(null); setMsg(null);
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
 
-    if (error) {
-      setLoading(false);
-      setErr(error.message || 'เข้าสู่ระบบไม่สำเร็จ');
-      return;
-    }
+    if (error) { setErr(error.message); return; }
 
-    // debug: ให้รู้ว่าได้ session จริง
-    const { data: me } = await supabase.auth.getUser();
-    setMsg(`เข้าสู่ระบบสำเร็จ (uid: ${me?.user?.id ?? 'unknown'}) กำลังพาไปหน้าใช้งาน…`);
-
-    // หน่วงสั้น ๆ ให้ client-set session เสร็จก่อน
-    await new Promise((r) => setTimeout(r, 300));
-
-    // ลอง soft navigation
+    setMsg('เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าแรก…');
     router.replace(returnTo);
-
-    // กันไม่ยอมไป: hard redirect ซ้ำ
-    window.location.assign(returnTo);
   };
 
   const signInWithMagicLink = async () => {
-    setLoading(true);
-    setErr(null);
-    setMsg(null);
-
+    setLoading(true); setErr(null); setMsg(null);
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
-      },
+      options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined },
     });
-
     setLoading(false);
-    if (error) {
-      setErr(error.message || 'ส่งลิงก์ไม่สำเร็จ');
-      return;
-    }
+    if (error) { setErr(error.message); return; }
     setMsg('ส่งลิงก์เข้าสู่ระบบไปที่อีเมลแล้ว กรุณาตรวจสอบกล่องจดหมาย');
   };
 
@@ -94,9 +57,7 @@ function LoginInner() {
       <main className="mx-auto max-w-md px-4 py-12">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <h1 className="text-2xl font-semibold tracking-tight">เข้าสู่ระบบ</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            สำหรับผู้ดูแลระบบและลูกดวงที่ได้รับสิทธิ์ใช้งาน
-          </p>
+          <p className="mt-2 text-sm text-slate-600">สำหรับผู้ดูแลระบบและลูกดวงที่ได้รับสิทธิ์ใช้งาน</p>
 
           <form onSubmit={signIn} className="mt-6 space-y-4">
             <div>
@@ -145,7 +106,7 @@ function LoginInner() {
           </div>
 
           <p className="mt-6 text-center text-sm text-slate-500">
-            ยังไม่มีบัญชี? <Link href="/signup" className="text-indigo-600">สมัครสมาชิก</Link>
+            ยังไม่มีบัญชี? <Link href="/signup" className="text-indigo-600 hover:underline">สมัครสมาชิก</Link>
           </p>
         </div>
       </main>
@@ -157,5 +118,13 @@ function LoginInner() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-slate-600">กำลังโหลด…</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }
