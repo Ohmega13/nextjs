@@ -1,21 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function LoginPage() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-md">
-        <h2 className="text-2xl font-bold text-center text-gray-900">เข้าสู่ระบบ</h2>
-        <LoginInner />
-      </div>
-    </div>
-  );
-}
-
-function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams?.get("returnTo") || "/reading";
@@ -23,21 +12,8 @@ function LoginInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  // ✅ ฟัง event การ login สำเร็จ
-  useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN") {
-        router.replace(returnTo);
-      }
-    });
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, [router, returnTo]);
+  const [msg, setMsg] = useState<string | null>(null);
 
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,53 +29,64 @@ function LoginInner() {
     setLoading(false);
 
     if (error) {
-      setErr(error.message);
+      setErr(error.message || "เข้าสู่ระบบไม่สำเร็จ");
       return;
     }
 
     setMsg("เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าแรก…");
+
+    // พาไปหน้า /reading
+    router.replace(returnTo);
+
+    // กันไม่ไปจริง — บังคับ reload
+    setTimeout(() => {
+      if (typeof window !== "undefined" && window.location.pathname === "/login") {
+        window.location.href = returnTo;
+      }
+    }, 500);
   };
 
   return (
-    <form onSubmit={signIn} className="space-y-4">
-      <div>
-        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-          อีเมล
-        </label>
-        <input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
+    <div className="flex h-screen items-center justify-center bg-gray-100">
+      <div className="w-full max-w-md rounded bg-white p-8 shadow">
+        <h1 className="mb-6 text-center text-2xl font-bold">เข้าสู่ระบบ</h1>
+
+        <form onSubmit={signIn} className="space-y-4">
+          <input
+            type="email"
+            placeholder="อีเมล"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            required
+          />
+          <input
+            type="password"
+            placeholder="รหัสผ่าน"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            required
+          />
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded bg-blue-600 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+          </button>
+        </form>
+
+        {err && <p className="mt-4 text-center text-red-500">{err}</p>}
+        {msg && <p className="mt-4 text-center text-green-600">{msg}</p>}
+
+        <div className="mt-6 text-center">
+          <a href="/signup" className="text-blue-600 hover:underline">
+            สมัครสมาชิก
+          </a>
+        </div>
       </div>
-
-      <div>
-        <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-          รหัสผ่าน
-        </label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-      </div>
-
-      {err && <p className="text-red-500 text-sm">{err}</p>}
-      {msg && <p className="text-green-500 text-sm">{msg}</p>}
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-2 px-4 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-      >
-        {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
-      </button>
-    </form>
+    </div>
   );
 }
