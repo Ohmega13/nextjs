@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -16,14 +16,40 @@ function LoginInner() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // ถ้ามี session อยู่แล้ว ให้เด้งออกจากหน้า login ทันที
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) router.replace(returnTo);
+    })();
+  }, [router, returnTo]);
+
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true); setErr(null); setMsg(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email, password,
+    });
+
+    console.log('[signInWithPassword] data:', data, 'error:', error); // ช่วยดีบัก
+
     setLoading(false);
 
-    if (error) { setErr(error.message); return; }
+    if (error) {
+      // error ทั่วไปที่เจอบ่อย
+      if (error.message.toLowerCase().includes('email not confirmed')) {
+        setErr('ยังไม่ได้ยืนยันอีเมล กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ');
+      } else {
+        setErr(error.message || 'เข้าสู่ระบบไม่สำเร็จ');
+      }
+      return;
+    }
+
+    if (!data?.session) {
+      setErr('เข้าสู่ระบบแล้ว แต่ไม่ได้รับ session (ตรวจค่า ENV ของ Supabase อีกครั้ง)');
+      return;
+    }
 
     setMsg('เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าแรก…');
     router.replace(returnTo);
@@ -33,7 +59,9 @@ function LoginInner() {
     setLoading(true); setErr(null); setMsg(null);
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined },
+      options: {
+        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
     });
     setLoading(false);
     if (error) { setErr(error.message); return; }
@@ -83,8 +111,8 @@ function LoginInner() {
               />
             </div>
 
-            {err && <div className="text-sm text-red-600">{err}</div>}
-            {msg && <div className="text-sm text-emerald-600">{msg}</div>}
+            {err && <div className="text-sm rounded-md bg-red-50 border border-red-200 p-3 text-red-700">{err}</div>}
+            {msg && <div className="text-sm rounded-md bg-emerald-50 border border-emerald-200 p-3 text-emerald-700">{msg}</div>}
 
             <button
               type="submit"
