@@ -11,7 +11,7 @@ type ProfileRow = {
   role: string | null;
   display_name: string | null;
   permissions?: Record<string, boolean> | null;
-};
+} | null;
 
 export default function TopNav() {
   const router = useRouter();
@@ -22,60 +22,68 @@ export default function TopNav() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
 
+  // helper: โหลด role/display_name จากตาราง profiles
+  const fetchProfile = async (uid: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('user_id, role, display_name, permissions')
+      .eq('user_id', uid)
+      .maybeSingle();
+
+    if (error) {
+      // ถ้า policy ยังไม่พร้อม/โปรไฟล์ยังไม่ถูก seed ก็ไม่ทำให้ UI พัง
+      return null as ProfileRow;
+    }
+    return (data ?? null) as ProfileRow;
+  };
+
   useEffect(() => {
-    let ignore = false;
+    let cancelled = false;
 
     const seed = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (ignore) return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (cancelled) return;
 
-      if (user) {
-        setUserEmail(user.email ?? null);
-        const meta: any = user.user_metadata || {};
-        setDisplayName(meta.full_name || meta.name || user.email || null);
+        if (user) {
+          setUserEmail(user.email ?? null);
+          const meta: any = user.user_metadata || {};
+          setDisplayName(meta.full_name || meta.name || user.email || null);
 
-        // ดึง role จากตาราง profiles
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('user_id, role, display_name, permissions')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        setRole((prof as ProfileRow | null)?.role ?? null);
-      } else {
-        setUserEmail(null);
-        setDisplayName(null);
-        setRole(null);
+          const prof = await fetchProfile(user.id);
+          setRole(prof?.role ?? null);
+        } else {
+          setUserEmail(null);
+          setDisplayName(null);
+          setRole(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     };
 
     seed();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const u = session?.user || null;
+      const u = session?.user ?? null;
       setUserEmail(u?.email ?? null);
+
       const meta: any = u?.user_metadata || {};
-      setDisplayName(meta?.full_name || meta?.name || u?.email || null);
+      setDisplayName(u ? (meta.full_name || meta.name || u.email || null) : null);
 
       if (u) {
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('user_id, role, display_name, permissions')
-          .eq('user_id', u.id)
-          .maybeSingle();
-
-        setRole((prof as ProfileRow | null)?.role ?? null);
+        const prof = await fetchProfile(u.id);
+        setRole(prof?.role ?? null);
       } else {
         setRole(null);
       }
-
       setLoading(false);
     });
 
     return () => {
-      sub.subscription.unsubscribe();
-      ignore = true;
+      cancelled = true;
+      // ป้องกันกรณี object ไม่มี subscription
+      sub?.subscription?.unsubscribe?.();
     };
   }, []);
 
@@ -102,7 +110,7 @@ export default function TopNav() {
           <span className="text-slate-300 px-1">|</span>
           <Link
             className="px-3 py-2 rounded-xl hover:bg-indigo-50 font-medium text-indigo-700"
-            href="/members"   // <-- เปลี่ยนมาที่ /members
+            href="/members"
           >
             สมาชิก
           </Link>
