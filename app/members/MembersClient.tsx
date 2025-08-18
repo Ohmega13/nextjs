@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import MembersTable from './members-table';
 
 type Row = {
   user_id: string;
@@ -58,6 +59,7 @@ export default function MembersClient() {
 
     fetchRows();
 
+    // subscribe เมื่อ auth state เปลี่ยน
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       if (!ignore) fetchRows();
     });
@@ -73,6 +75,7 @@ export default function MembersClient() {
     const token = session?.access_token;
     if (!token) return;
 
+    // optimistic update
     setRows(prev =>
       prev.map(x =>
         x.user_id === r.user_id
@@ -91,6 +94,7 @@ export default function MembersClient() {
     });
 
     if (!res.ok) {
+      // rollback ถ้า error
       setRows(prev =>
         prev.map(x =>
           x.user_id === r.user_id
@@ -117,59 +121,7 @@ export default function MembersClient() {
       )}
 
       {!loading && !err && (
-        <div className="rounded-xl border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-3 py-2 text-left">อีเมล</th>
-                <th className="px-3 py-2">ชื่อแสดง</th>
-                <th className="px-3 py-2">บทบาท</th>
-                <th className="px-3 py-2">สถานะ</th>
-                <th className="px-3 py-2">Tarot</th>
-                <th className="px-3 py-2">พื้นดวง</th>
-                <th className="px-3 py-2">ลายมือ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.user_id} className="border-t">
-                  <td className="px-3 py-2">{r.email}</td>
-                  <td className="px-3 py-2">{r.display_name ?? '-'}</td>
-                  <td className="px-3 py-2">{r.role}</td>
-                  <td className="px-3 py-2">{r.status}</td>
-                  <td className="px-3 py-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={!!r.permissions?.tarot}
-                      onChange={e => toggle(r, 'tarot', e.target.checked)}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={!!r.permissions?.natal}
-                      onChange={e => toggle(r, 'natal', e.target.checked)}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <input
-                      type="checkbox"
-                      checked={!!r.permissions?.palm}
-                      onChange={e => toggle(r, 'palm', e.target.checked)}
-                    />
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>
-                    ยังไม่มีสมาชิก
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <MembersTable rows={rows} toggle={toggle} />
       )}
 
       <p className="text-xs text-slate-500">
