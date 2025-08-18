@@ -20,7 +20,7 @@ export default function TopNav() {
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [role, setRole] = useState<string | null>(null); // <— เพิ่ม state role
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -100,7 +100,10 @@ export default function TopNav() {
       {role === 'admin' && (
         <>
           <span className="text-slate-300 px-1">|</span>
-          <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50 font-medium text-indigo-700" href="/admin/members">
+          <Link
+            className="px-3 py-2 rounded-xl hover:bg-indigo-50 font-medium text-indigo-700"
+            href="/members"   // <-- เปลี่ยนมาที่ /members
+          >
             สมาชิก
           </Link>
         </>
