@@ -1,87 +1,61 @@
-// app/api/admin/members/route.ts
-import { NextResponse } from "next/server";
-import { createClient, type User } from "@supabase/supabase-js";
+export const runtime = 'nodejs';
+import { NextResponse } from 'next/server';
+import { assertAdmin, supaAdmin } from '@/lib/supabaseAdmin';
 
-// ---- Helper: สร้าง service client (ฝั่ง server เท่านั้น) ----
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const svc = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, svc, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
-
-// ---- Helper: ตรวจสิทธิ์ admin จาก Bearer token ----
-async function assertAdmin(authz?: string) {
-  if (!authz || !authz.toLowerCase().startsWith("bearer "))
-    throw new Error("missing_token");
-
-  const token = authz.split(" ")[1];
-  const supa = serviceClient();
-
-  // ดึง user จาก access token
-  const ures = await supa.auth.getUser(token);
-  const uid = ures.data.user?.id;
-  if (!uid) throw new Error("invalid_token");
-
-  // เช็ก role = 'admin' ใน public.profiles
-  const { data: prof, error } = await supa
-    .from("profiles")
-    .select("role")
-    .eq("user_id", uid)
-      // ถ้า schema คุณเก็บ role = 'admin' ตามที่เราตั้งไว้ จะผ่านได้
-    .single();
-
-  if (error || !prof || prof.role !== "admin") throw new Error("forbidden");
-
-  return { supa, uid };
-}
-
-// ---- GET /api/admin/members ----
 export async function GET(req: Request) {
   try {
-    const authz = req.headers.get("authorization") || undefined;
-    const { supa } = await assertAdmin(authz);
+    const authz = req.headers.get('authorization') || undefined;
+    await assertAdmin(authz); // ถ้าไม่ใช่แอดมินจะ throw
 
-    // 1) ดึง profiles ทั้งหมด
-    const { data: profiles, error } = await supa
-      .from("profiles")
-      .select("user_id, role, status, display_name, permissions, created_at")
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    // 2) map user_id -> email โดยเรียก auth.admin.listUsers
-    const users: Record<string, string> = {};
+    // 1) ดึง users ทั้งหมดจาก auth (แบ่งหน้า)
     let page = 1;
-    // ส่วนใหญ่พอแค่ 1–2 หน้า; ปรับได้ตามขนาดฐาน
-    for (let i = 0; i < 2; i++) {
-      const pageRes = await supa.auth.admin.listUsers({ page, perPage: 100 });
-      const list = (pageRes.data?.users ?? []) as unknown as User[];
-      for (const u of list) {
-        users[u.id] = u.email ?? "";
-      }
-      if (list.length < 100) break;
+    const allUsers: Array<{ id: string; email: string | null; user_metadata?: any }> = [];
+    for (let i = 0; i < 10; i++) {
+      const res = await supaAdmin.auth.admin.listUsers({ page, perPage: 100 });
+      if (res.error) throw res.error;
+      allUsers.push(...res.data.users.map(u => ({ id: u.id, email: u.email ?? null, user_metadata: u.user_metadata })));
+      if (res.data.users.length < 100) break;
       page++;
     }
 
-    // 3) รวมข้อมูล
-    const rows = (profiles ?? []).map((p: any) => ({
-      user_id: p.user_id,
-      email: users[p.user_id] || "",
-      role: p.role,
-      status: p.status,
-      display_name: p.display_name,
-      permissions: p.permissions ?? {},
-      created_at: p.created_at,
-    }));
+    // 2) ดึง profiles ที่มีอยู่จริงทั้งหมดครั้งเดียว
+    const { data: profData, error: profErr } = await supaAdmin
+      .from('profiles')
+      .select('user_id, role, status, display_name, permissions');
+    if (profErr) throw profErr;
+
+    const profMap = new Map(
+      (profData ?? []).map(p => [p.user_id, p as {
+        user_id: string;
+        role: string | null;
+        status: string | null;
+        display_name: string | null;
+        permissions?: Record<string, boolean> | null;
+      }])
+    );
+
+    // 3) รวมข้อมูล: ถ้าไม่มีโปรไฟล์ ให้ใส่ค่า default เพื่อให้ admin เห็นและจัดสิทธิ์ได้
+    const rows = allUsers.map(u => {
+      const p = profMap.get(u.id);
+      return {
+        user_id: u.id,
+        email: u.email ?? '',
+        role: p?.role ?? 'member',
+        status: p?.status ?? 'active',
+        display_name: p?.display_name ?? (u.user_metadata?.full_name || u.user_metadata?.name || u.email || null),
+        permissions: p?.permissions ?? {}
+      };
+    });
+
+    // จัดเรียงให้อ่านง่าย
+    rows.sort((a, b) => (a.email || '').localeCompare(b.email || ''));
 
     return NextResponse.json({ rows });
-  } catch (err: any) {
-    const msg = String(err?.message || err);
+  } catch (e: any) {
+    console.error('/api/admin/members error:', e?.message || e);
     const code =
-      msg === "missing_token" || msg === "invalid_token" ? 401 :
-      msg === "forbidden" ? 403 : 500;
-    return NextResponse.json({ error: msg }, { status: code });
+      e?.message === 'NO_AUTH' || e?.message === 'BAD_AUTH' ? 401 :
+      e?.message === 'FORBIDDEN' ? 403 : 500;
+    return NextResponse.json({ error: e?.message ?? 'INTERNAL' }, { status: code });
   }
 }
