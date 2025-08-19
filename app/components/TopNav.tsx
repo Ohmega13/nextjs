@@ -16,9 +16,6 @@ export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // โหมดมินิมอลเฉพาะหน้า login
-  const isLoginPage = pathname === '/login';
-
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
@@ -85,8 +82,21 @@ export default function TopNav() {
     router.replace('/login?returnTo=' + encodeURIComponent(pathname || '/'));
   };
 
-  // เมนูสำหรับหน้าปกติ
-  const normalLinks = (
+  // เมนูเมื่อ "ยังไม่ล็อกอิน" — แสดงเฉพาะ 4 รายการ
+  const guestLinks = (
+    <>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
+      <span className="text-slate-300 px-1">|</span>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
+      <span className="text-slate-300 px-1">|</span>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/about">เกี่ยวกับเรา</Link>
+      <span className="text-slate-300 px-1">|</span>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/contact">ติดต่อเรา</Link>
+    </>
+  );
+
+  // เมนูเมื่อ "ล็อกอินแล้ว"
+  const authedLinks = (
     <>
       <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/clients">ลงทะเบียนลูกดวง</Link>
       <span className="text-slate-300 px-1">|</span>
@@ -109,38 +119,14 @@ export default function TopNav() {
     </>
   );
 
-  // เมนูสำหรับหน้า login (มินิมอล)
-  const loginLinks = (
-    <>
-      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
-      <span className="text-slate-300 px-1">|</span>
-      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
-      <span className="text-slate-300 px-1">|</span>
-      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/about">เกี่ยวกับเรา</Link>
-      <span className="text-slate-300 px-1">|</span>
-      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/contact">ติดต่อเรา</Link>
-    </>
-  );
-
-  // ถ้าเป็นหน้า login ให้แสดงเฉพาะเมนู และตัดส่วน user info ออก
-  if (isLoginPage) {
-    return (
-      <nav className="flex items-center gap-1 text-sm">
-        {loginLinks}
-      </nav>
-    );
-  }
-
-  // หน้าปกติ
   return (
     <nav className="flex items-center gap-1 text-sm">
-      {normalLinks}
-      <span className="text-slate-300 px-1">|</span>
-
       {loading ? (
         <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
       ) : userEmail ? (
         <>
+          {authedLinks}
+          <span className="text-slate-300 px-1">|</span>
           <span className="px-3 py-2 text-slate-600">
             สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
           </span>
@@ -152,10 +138,7 @@ export default function TopNav() {
           </button>
         </>
       ) : (
-        <>
-          <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
-          <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
-        </>
+        guestLinks
       )}
     </nav>
   );
