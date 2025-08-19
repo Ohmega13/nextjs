@@ -1,5 +1,5 @@
 'use client';
-import PermissionGate from '@/app/components/PermissionGate';
+import PermissionGate from '../../components/PermissionGate';
 
 export default function PalmPage() {
   return (
