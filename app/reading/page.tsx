@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import PermissionGate from '@/app/components/PermissionGate'; // ปรับพาธถ้าจำเป็น
+import PermissionGate from '../components/PermissionGate';
 
 type CardPick = {
   name: string;
