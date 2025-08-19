@@ -1,53 +1,72 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import PermissionGate from '@/components/PermissionGate';
 import ClientPicker from '@/components/ClientPicker';
+import ClientInfoCard from '@/components/ClientInfoCard';
 
 type CardPick = { name: string; reversed: boolean };
+type ReadingType = '3cards' | 'weigh' | 'celtic';
+
+const FULL_DECK: string[] = [
+  'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
+  'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
+  'Wheel of Fortune','Justice','The Hanged Man','Death','Temperance',
+  'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World',
+];
 
 export default function TarotReadingPage() {
-  const [topic, setTopic] = useState('');
-  const [cards, setCards] = useState<CardPick[]>([]);
   const [role, setRole] = useState<string | null>(null);
-
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
 
+  const [readingType, setReadingType] = useState<ReadingType>('3cards');
+  const [topic, setTopic] = useState('');
+  const [options, setOptions] = useState<string[]>(['ตัวเลือก A', 'ตัวเลือก B']); // สำหรับโหมดชั่งน้ำหนัก
+  const [cards, setCards] = useState<CardPick[]>([]);
+  const [result, setResult] = useState<string>(''); // ข้อความคำทำนาย (mock)
+
   useEffect(() => {
-    let ignore = false;
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || ignore) return;
+      if (!user) return;
       const { data } = await supabase
         .from('profiles')
-        .select('role, display_name')
+        .select('role')
         .eq('user_id', user.id)
         .maybeSingle();
-
-      if (!ignore) setRole((data as any)?.role ?? null);
+      setRole((data as any)?.role ?? null);
     })();
-    return () => { ignore = true; };
   }, []);
 
-  const fullDeck: string[] = [
-    'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
-    'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
-    'Wheel of Fortune','Justice','The Hanged Man','Death','Temperance',
-    'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World',
-  ];
+  const requiredCount = useMemo(() => {
+    if (readingType === '3cards') return 3;
+    if (readingType === 'weigh') return options.length; // 1 ใบต่อตัวเลือก
+    return 10; // celtic 10 ใบ
+  }, [readingType, options.length]);
 
-  function draw(count: number) {
-    const deck = [...fullDeck];
+  function draw() {
+    const deck = [...FULL_DECK];
     const picks: CardPick[] = [];
-    for (let i = 0; i < Math.min(count, deck.length); i++) {
+    for (let i = 0; i < Math.min(requiredCount, deck.length); i++) {
       const idx = Math.floor(Math.random() * deck.length);
       const name = deck.splice(idx, 1)[0];
       const reversed = Math.random() < 0.48;
       picks.push({ name, reversed });
     }
     setCards(picks);
+
+    // สร้างคำทำนายอย่างง่าย (mock)
+    let text = '';
+    if (readingType === '3cards') {
+      text = `สรุป 3 ใบสำหรับ "${topic || 'คำถาม'}" : ไพ่ชี้ให้เห็นมุมอดีต-ปัจจุบัน-อนาคต ควรใช้สติและวางแผนต่อเนื่อง`;
+    } else if (readingType === 'weigh') {
+      text = `การชั่งน้ำหนักตัวเลือก: ไพ่ที่ออกเป็นแนวทาง เปรียบเทียบ ${options.join(' / ')} โดยรวมให้ฟังเสียงหัวใจและข้อมูลจริงควบคู่กัน`;
+    } else {
+      text = `Celtic Cross 10 ใบ: สถานการณ์มีหลายชั้น ลองทบทวนเป้าหมายและขอคำแนะนำจากคนที่ไว้ใจ`;
+    }
+    setResult(text);
   }
 
   function saveToHistory() {
@@ -55,84 +74,144 @@ export default function TarotReadingPage() {
       id: string;
       date: string;
       mode: 'tarot';
+      readingType: ReadingType;
       topic?: string;
+      options?: string[];
       cards: CardPick[];
-      clientId?: string | null;
-      clientName?: string | null;
+      result: string;
+      clientId?: string|null;
+      clientName?: string|null;
     };
-
     const item: HistoryItem = {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
       mode: 'tarot',
+      readingType,
       topic,
+      options: readingType === 'weigh' ? options : undefined,
       cards,
+      result,
       clientId: role === 'admin' ? clientId : null,
       clientName: role === 'admin' ? clientName : null,
     };
-
-    try {
-      const raw = localStorage.getItem('ddt_history');
-      const arr = raw ? (JSON.parse(raw) as HistoryItem[]) : [];
-      arr.unshift(item);
-      localStorage.setItem('ddt_history', JSON.stringify(arr));
-      alert('บันทึกประวัติแล้ว');
-    } catch {
-      alert('บันทึกไม่สำเร็จ');
-    }
+    const raw = localStorage.getItem('ddt_history');
+    const arr = raw ? (JSON.parse(raw) as HistoryItem[]) : [];
+    arr.unshift(item);
+    localStorage.setItem('ddt_history', JSON.stringify(arr));
+    alert('บันทึกประวัติเรียบร้อย');
   }
 
   return (
     <PermissionGate requirePerms={['tarot']}>
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold">ดูดวงไพ่ยิปซี (Tarot)</h1>
+        <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
 
-        {role === 'admin' && (
-          <ClientPicker
-            value={clientId}
-            onChange={(id, client) => {
-              setClientId(id);
-              setClientName(client?.name || client?.email || null);
-            }}
-          />
+        {/* Admin เท่านั้นถึงจะเลือกชื่อลูกดวงได้ */}
+        {role === 'admin' ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ClientPicker
+              value={clientId}
+              onChange={(id, c) => {
+                setClientId(id);
+                setClientName(c?.name || c?.email || null);
+              }}
+            />
+            <ClientInfoCard forUserId={clientId ?? undefined} />
+          </div>
+        ) : (
+          <ClientInfoCard /> // member แสดงของตัวเอง
         )}
 
-        <div className="rounded-xl border p-4 space-y-2">
-          <label className="text-sm text-slate-600">หัวข้อ/คำถาม</label>
-          <input
-            className="w-full rounded-lg border px-3 py-2"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="พิมพ์หัวข้อที่ต้องการถาม"
-          />
+        {/* ประเภทการเปิดไพ่ */}
+        <div className="rounded-xl border p-4 space-y-3">
+          <label className="text-sm text-slate-600">ประเภทไพ่ที่เปิด</label>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <button
+              className={`rounded-lg border px-3 py-2 ${readingType==='3cards'?'bg-indigo-600 text-white':'bg-white'}`}
+              onClick={() => setReadingType('3cards')}
+            >
+              ถามเรื่องต่างๆ 3 ใบ
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2 ${readingType==='weigh'?'bg-indigo-600 text-white':'bg-white'}`}
+              onClick={() => setReadingType('weigh')}
+            >
+              ถามชั่งน้ำหนัก 1 ใบต่อตัวเลือก
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2 ${readingType==='celtic'?'bg-indigo-600 text-white':'bg-white'}`}
+              onClick={() => setReadingType('celtic')}
+            >
+              แบบคลาสสิก 10 ใบ
+            </button>
+          </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 mt-2">
-            <button className="rounded-lg border px-4 py-2" onClick={() => draw(1)}>สุ่ม 1 ใบ</button>
-            <button className="rounded-lg border px-4 py-2" onClick={() => draw(3)}>สุ่ม 3 ใบ</button>
-            <button className="rounded-lg border px-4 py-2" onClick={() => draw(5)}>สุ่ม 5 ใบ</button>
+          {/* ฟิลด์ประกอบ */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-sm text-slate-600">หัวข้อ/คำถาม</label>
+              <input
+                className="mt-1 w-full rounded-lg border px-3 py-2"
+                value={topic}
+                onChange={(e)=>setTopic(e.target.value)}
+                placeholder="พิมพ์สิ่งที่อยากถาม"
+              />
+            </div>
+            {readingType==='weigh' && (
+              <div>
+                <label className="text-sm text-slate-600">ตัวเลือก (แก้ไขได้)</label>
+                <div className="space-y-2 mt-1">
+                  {options.map((op, i)=>(
+                    <input key={i}
+                      className="w-full rounded-lg border px-3 py-2"
+                      value={op}
+                      onChange={(e)=>{
+                        const arr=[...options]; arr[i]=e.target.value; setOptions(arr);
+                      }}
+                    />
+                  ))}
+                  <div className="flex gap-2">
+                    <button className="rounded-lg border px-3 py-1" onClick={()=>setOptions([...options, `ตัวเลือก ${options.length+1}`])}>+ เพิ่มตัวเลือก</button>
+                    {options.length>2 && (
+                      <button className="rounded-lg border px-3 py-1" onClick={()=>setOptions(options.slice(0,-1))}>− ลบตัวเลือกท้าย</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2">
+            <button className="rounded-lg bg-indigo-600 text-white px-4 py-2" onClick={draw}>
+              ดูดวง
+            </button>
           </div>
         </div>
 
-        <div className="rounded-xl border p-4">
-          <h2 className="font-medium mb-2">ไพ่ที่สุ่มได้</h2>
-          {cards.length === 0 ? (
-            <div className="text-slate-500 text-sm">ยังไม่มีไพ่ที่สุ่ม</div>
-          ) : (
-            <ul className="list-disc pl-5">
-              {cards.map((c, i) => (
-                <li key={i}>{c.name} {c.reversed ? '(กลับหัว)' : ''}</li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {/* ผลลัพธ์ */}
+        {cards.length>0 && (
+          <div className="space-y-4">
+            <div className="rounded-xl border p-4">
+              <div className="font-medium mb-2">ไพ่ที่เปิดได้ (ทั้งหมด {cards.length} ใบ)</div>
+              <ul className="list-disc pl-5 text-sm">
+                {cards.map((c,i)=>(
+                  <li key={i}>{c.name} {c.reversed ? '(กลับหัว)' : ''}</li>
+                ))}
+              </ul>
+            </div>
 
-        <button
-          className="rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-60"
-          disabled={cards.length === 0}
-          onClick={saveToHistory}
-        >
-          บันทึกประวัติ
-        </button>
+            <div className="rounded-xl border p-4">
+              <div className="font-medium mb-2">คำทำนาย</div>
+              <p className="text-sm text-slate-700 whitespace-pre-line">{result}</p>
+            </div>
+
+            <div>
+              <button className="rounded-lg bg-emerald-600 text-white px-4 py-2" onClick={saveToHistory}>
+                บันทึกผลลัพธ์
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </PermissionGate>
   );
