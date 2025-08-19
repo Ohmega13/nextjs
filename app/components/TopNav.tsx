@@ -23,6 +23,11 @@ export default function TopNav() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
 
+  // ปิดเมนูทุกครั้งที่เปลี่ยนเส้นทาง
+  useEffect(() => {
+    if (menuOpen) setMenuOpen(false);
+  }, [pathname]);
+
   // load user + role
   useEffect(() => {
     let ignore = false;
@@ -113,6 +118,7 @@ export default function TopNav() {
       onClick={() => setMenuOpen(v => !v)}
       aria-expanded={menuOpen}
       aria-label="เปิดเมนู"
+      aria-controls="topnav-menu"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -125,7 +131,7 @@ export default function TopNav() {
     <header className="relative z-20">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         {/* ซ้าย: โลโก้เท่านั้น */}
-        <Link href="/" className="flex items-center">
+        <Link href="/" className="flex items-center" aria-label="Go to Home">
           <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">
             DD
           </div>
@@ -155,7 +161,7 @@ export default function TopNav() {
 
       {/* เมนูเด้งลง */}
       {menuOpen && (
-        <div className="absolute left-0 right-0 top-full border-t bg-white shadow-lg">
+        <div id="topnav-menu" className="absolute left-0 right-0 top-full border-t bg-white shadow-lg">
           <nav className="mx-auto grid max-w-6xl gap-1 px-4 py-3 sm:grid-cols-2 md:grid-cols-3">
             {userEmail ? (
               <>
