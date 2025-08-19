@@ -1,159 +1,118 @@
+// app/components/PermissionGate.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
 
 type Props = {
-  /** ต้องการ role เฉพาะ เช่น 'admin' (เว้นว่างถ้าไม่ต้องตรวจ role) */
-  requireRole?: 'admin';
-  /** ต้องการ permission เฉพาะ เช่น ['tarot'] หรือ ['natal'] เป็นต้น */
+  /** รายการสิทธิ์ที่จำเป็น ต้องเป็น true ครบทุกตัวถึงจะผ่าน */
   requirePerms?: string[];
-  /** children: คอนเทนต์ของหน้าที่จะโชว์เมื่อผ่านสิทธิ์ */
   children: React.ReactNode;
-  /** เมื่อไม่มีสิทธิ์ให้ redirect ไปไหน (เว้นว่างถ้าไม่อยากพาไปไหน) */
-  redirectTo?: string;
 };
 
 type ProfileRow = {
   user_id: string;
   role: string | null;
-  permissions: Record<string, boolean> | null | undefined;
+  display_name: string | null;
+  permissions?: Record<string, boolean> | null;
 };
 
-export default function PermissionGate({
-  requireRole,
-  requirePerms = [],
-  children,
-  redirectTo = '/',
-}: Props) {
-  const router = useRouter();
+export default function PermissionGate({ requirePerms = [], children }: Props) {
+  const [loading, setLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [perms, setPerms] = useState<Record<string, boolean>>({});
+  const alerted = useRef(false);
 
-  const [pending, setPending] = useState(true);
-  const [allowed, setAllowed] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-
-  // ทำ key สำหรับ dependency จาก requirePerms เพื่อลด warning ของ ESLint
-  const permKey = useMemo(() => (requirePerms ? [...requirePerms].sort().join(',') : ''), [
-    requirePerms,
-  ]);
-
+  // โหลดสิทธิ์ของผู้ใช้ปัจจุบัน
   useEffect(() => {
-    let alive = true;
+    let ignore = false;
 
-    const run = async () => {
-      setPending(true);
+    async function load() {
+      setLoading(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (ignore) return;
 
-      // ต้องล็อกอินก่อน
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!alive) return;
+        if (!user) {
+          setIsLoggedIn(false);
+          setPerms({});
+          setLoading(false);
+          return;
+        }
 
-      if (!user) {
-        setAllowed(false);
-        setShowModal(true);
-        setPending(false);
-        return;
+        setIsLoggedIn(true);
+
+        // ดึง permissions จากตาราง profiles
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('user_id, role, display_name, permissions')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        const p = ((prof as ProfileRow | null)?.permissions ?? {}) as Record<string, boolean>;
+        setPerms(p);
+      } finally {
+        if (!ignore) setLoading(false);
       }
+    }
 
-      // โหลดโปรไฟล์เพื่อดู role/permissions
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('user_id, role, permissions')
-        .eq('user_id', user.id)
-        .maybeSingle();
+    load();
 
-      const role = (prof as ProfileRow | null)?.role ?? null;
-      const perms = (prof as ProfileRow | null)?.permissions ?? {};
-
-      // แอดมินผ่านทุกเงื่อนไข
-      if (role === 'admin') {
-        setAllowed(true);
-        setPending(false);
-        return;
-      }
-
-      // ต้องเป็น role เฉพาะ?
-      if (requireRole && role !== requireRole) {
-        setAllowed(false);
-        setShowModal(true);
-        setPending(false);
-        return;
-      }
-
-      // ต้องมี perms เฉพาะ?
-      const okPerms = (requirePerms || []).every((k) => !!(perms && (perms as any)[k]));
-      if (!okPerms) {
-        setAllowed(false);
-        setShowModal(true);
-        setPending(false);
-        return;
-      }
-
-      setAllowed(true);
-      setPending(false);
-    };
-
-    run();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      // เมื่อสถานะ auth เปลี่ยน ให้ตรวจใหม่
-      run();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      // ถ้าเปลี่ยนสถานะ login/logout ให้รีโหลดสิทธิ์ใหม่
+      alerted.current = false; // รีเซ็ตไม่ให้ alert ค้างจากรอบก่อน
+      load();
     });
 
     return () => {
-      alive = false;
-      subscription.unsubscribe();
+      ignore = true;
+      sub.subscription.unsubscribe();
     };
-  }, [requireRole, permKey]);
+  }, []);
 
-  if (pending) {
-    return <div className="text-slate-500 text-sm">กำลังตรวจสอบสิทธิ์…</div>;
-  }
+  // คำนวณว่ามีสิทธิ์ครบไหม
+  const hasPermission = useMemo(() => {
+    if (requirePerms.length === 0) return true;
+    return requirePerms.every((k) => perms?.[k] === true);
+  }, [requirePerms, perms]);
 
-  if (!allowed) {
+  // เตือน popup ครั้งเดียวถ้าไม่มีสิทธิ์
+  const reqKey = useMemo(() => requirePerms.join('|'), [requirePerms]);
+  useEffect(() => {
+    if (!loading && isLoggedIn && !hasPermission && !alerted.current) {
+      alerted.current = true;
+      alert('ขออภัย คุณไม่มีแพ็คเกจการใช้งานสำหรับหน้านี้ กรุณาติดต่อ Admin');
+    }
+    // ใส่ reqKey เพื่อตัด warning exhaustive-deps (ไม่โยน array ตรง ๆ)
+  }, [loading, isLoggedIn, hasPermission, reqKey]);
+
+  // สถานะกำลังโหลด
+  if (loading) {
     return (
-      <>
-        {/* หน้าจอว่าง + โมดัลแจ้งเตือน */}
-        <div className="p-6 text-slate-500 text-sm">ไม่มีสิทธิ์ใช้งานเนื้อหานี้</div>
-
-        {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* backdrop */}
-            <div className="absolute inset-0 bg-black/30" onClick={() => setShowModal(false)} />
-
-            {/* modal */}
-            <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-lg border">
-              <div className="p-6">
-                <h2 className="text-lg font-semibold text-slate-900">ขออภัย คุณไม่มีแพ็กเกจการใช้งาน</h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  กรุณาติดต่อผู้ดูแลระบบ (Admin) เพื่อเปิดสิทธิ์การใช้งานในหน้านี้
-                </p>
-                <div className="mt-6 flex justify-end gap-3">
-                  <button
-                    className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                    onClick={() => setShowModal(false)}
-                  >
-                    ปิด
-                  </button>
-                  <button
-                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
-                    onClick={() => router.replace(redirectTo)}
-                  >
-                    กลับหน้าแรก
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </>
+      <div className="rounded-xl border p-4 text-sm text-slate-600">
+        กำลังตรวจสอบสิทธิ์การใช้งาน…
+      </div>
     );
   }
 
-  return <>{children}</>; 
+  // ยังไม่ล็อกอิน
+  if (!isLoggedIn) {
+    return (
+      <div className="rounded-xl border p-4 text-sm">
+        โปรดเข้าสู่ระบบเพื่อใช้งานหน้านี้
+      </div>
+    );
+  }
+
+  // ล็อกอินแล้ว แต่ไม่มีสิทธิ์
+  if (!hasPermission) {
+    return (
+      <div className="rounded-xl border p-4 text-sm text-rose-600">
+        คุณไม่มีสิทธิ์ใช้งานหน้านี้ กรุณาติดต่อผู้ดูแลระบบ
+      </div>
+    );
+  }
+
+  // ผ่านทุกอย่าง แสดงเนื้อหาได้
+  return <>{children}</>;
 }
