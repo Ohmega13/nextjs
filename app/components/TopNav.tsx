@@ -123,14 +123,14 @@ export default function TopNav() {
 
   return (
     <header className="relative z-20">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        {/* โลโก้ / ชื่อระบบ -> กดกลับ Home */}
-        <Link href="/" className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">DD</div>
-          <span className="font-medium">Destiny Decode <span className="text-indigo-700">Tarot</span></span>
-        </Link>
-
+      <div className="mx-auto flex max-w-6xl items-center justify-end px-4 py-3">
         <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="hidden sm:block font-medium hover:text-indigo-700"
+          >
+            Destiny Decode <span className="text-indigo-700">Tarot</span>
+          </Link>
           {/* ข้อความผู้ใช้ */}
           {loading ? (
             <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
