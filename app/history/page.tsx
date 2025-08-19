@@ -2,36 +2,38 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Select, Shell, copy } from "../components/ui";
 
+// หมายเหตุ: สำหรับสมาชิก (member) หน้านี้จะแสดงประวัติของผู้ใช้เองเท่านั้น
+// ตัวกรองเหลือเพียง ประเภทการดูดวง และช่วงวันที่
 export default function HistoryPage(){
   const [items,setItems]=useState([]);
-  const [clients,setClients]=useState([]);
 
   // ตัวกรองที่ผู้ใช้กำลังตั้งค่า (ยังไม่ค้นหา)
-  const [form,setForm]=useState({ client:"", mode:"", from:"", to:"" });
+  const [form,setForm]=useState({ mode:"", from:"", to:"" });
   // ตัวกรองที่ถูก “ยืนยันค้นหา” แล้ว
-  const [applied,setApplied]=useState({ client:"", mode:"", from:"", to:"", active:false });
+  const [applied,setApplied]=useState({ mode:"", from:"", to:"", active:false });
 
   useEffect(()=>{ 
     try{
+      // ประวัติทั้งหมดบนอุปกรณ์นี้ (ผูกกับผู้ใช้ที่ล็อกอินอุปกรณ์นี้อยู่แล้ว)
       setItems(JSON.parse(localStorage.getItem("history")||"[]"));
-      setClients(JSON.parse(localStorage.getItem("clients")||"[]"));
     }catch{}
   },[]);
 
-  const canSearch = !!form.client; // ต้องเลือกชื่อลูกดวงก่อน
+  // สมาชิกไม่ต้องเลือกชื่อลูกดวงอีกต่อไป
+  const canSearch = true;
 
   const onSearch = ()=>{
     setApplied({ ...form, active:true });
   };
   const onReset = ()=>{
-    setForm({ client:"", mode:"", from:"", to:"" });
-    setApplied({ client:"", mode:"", from:"", to:"", active:false });
+    setForm({ mode:"", from:"", to:"" });
+    setApplied({ mode:"", from:"", to:"", active:false });
   };
 
   const filtered = useMemo(()=>{
     if(!applied.active) return [];
     return (items||[]).filter(h=>{
-      if(applied.client && (h.client||"") !== applied.client) return false;
+      // ไม่ต้องกรองตามชื่อลูกดวงอีกต่อไป (สมาชิกเห็นเฉพาะประวัติตัวเองที่บันทึกไว้ในเครื่อง)
       if(applied.mode && (h.mode||"") !== applied.mode) return false;
       if(applied.from && new Date(h.date) < new Date(applied.from)) return false;
       if(applied.to && new Date(h.date) > new Date(applied.to + "T23:59:59")) return false;
@@ -42,16 +44,14 @@ export default function HistoryPage(){
   const modes = ["1 ใบ (Quick)","3 ใบ (อดีต-ปัจจุบัน-อนาคต)","5 ใบ (เจาะลึก)","Celtic Cross (10)"];
 
   return (
-    <Shell title="ประวัติการดูดวง" subtitle="เลือกตัวกรองให้ครบ แล้วกดค้นหา">
+    <Shell title="ประวัติการดูดวง" subtitle="เลือกรูปแบบไพ่ และช่วงวันที่ แล้วกดค้นหา">
       <Card className="p-4">
-        <div className="grid sm:grid-cols-4 gap-3">
-          <Select label="ลูกดวง (จำเป็น)" value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))}>
-            <option value="">— เลือกชื่อ —</option>
-            {clients.map(c=><option key={c.id} value={c.name}>{c.name}{c.nickname?` (${c.nickname})`:""}</option>)}
-          </Select>
+        <div className="grid sm:grid-cols-3 gap-3">
           <Select label="รูปแบบไพ่" value={form.mode} onChange={e=>setForm(f=>({...f,mode:e.target.value}))}>
             <option value="">— ทั้งหมด —</option>
-            {modes.map(m=><option key={m} value={m}>{m}</option>)}
+            {modes.map(m=>
+              <option key={m} value={m}>{m}</option>
+            )}
           </Select>
           <label className="text-sm grid gap-1">
             <span className="text-slate-700">ตั้งแต่วันที่</span>
@@ -70,7 +70,7 @@ export default function HistoryPage(){
 
         {!applied.active && (
           <div className="mt-3 text-sm text-slate-500">
-            เลือก <b>ลูกดวง</b> อย่างน้อย 1 ราย แล้วกด “ค้นหา”
+            เลือก <b>รูปแบบไพ่</b> และ/หรือช่วงวันที่ แล้วกด “ค้นหา”
           </div>
         )}
       </Card>
@@ -92,7 +92,7 @@ export default function HistoryPage(){
                 <div className="mt-3">
                   <div className="font-medium">ไพ่ที่เปิดได้ & ความหมายรายใบ</div>
                   <ul className="list-disc ml-5 text-sm space-y-1">
-                    {h.per_card.map((pc,i)=><li key={i}><b>{pc.name}:</b> {pc.meaning}</li>)}
+                    {(h.per_card||[]).map((pc,i)=>(<li key={i}><b>{pc.name}:</b> {pc.meaning}</li>))}
                   </ul>
                 </div>
               )}
@@ -106,7 +106,7 @@ export default function HistoryPage(){
                 <div className="mt-3">
                   <div className="font-medium">คำแนะนำ</div>
                   <ul className="list-disc ml-5 text-sm">
-                    {h.advices.map((a,i)=><li key={i}>{a}</li>)}
+                    {(h.advices||[]).map((a,i)=>(<li key={i}>{a}</li>))}
                   </ul>
                 </div>
               )}

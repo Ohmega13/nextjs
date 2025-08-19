@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -18,14 +18,14 @@ type Props = {
 type ProfileRow = {
   user_id: string;
   role: string | null;
-  permissions: Record<string, boolean> | null;
+  permissions: Record<string, boolean> | null | undefined;
 };
 
 export default function PermissionGate({
   requireRole,
   requirePerms = [],
   children,
-  redirectTo = '/'
+  redirectTo = '/',
 }: Props) {
   const router = useRouter();
 
@@ -33,13 +33,21 @@ export default function PermissionGate({
   const [allowed, setAllowed] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
+  // ทำ key สำหรับ dependency จาก requirePerms เพื่อลด warning ของ ESLint
+  const permKey = useMemo(() => (requirePerms ? [...requirePerms].sort().join(',') : ''), [
+    requirePerms,
+  ]);
+
   useEffect(() => {
     let alive = true;
 
     const run = async () => {
       setPending(true);
+
       // ต้องล็อกอินก่อน
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const user = session?.user;
       if (!alive) return;
 
@@ -76,7 +84,7 @@ export default function PermissionGate({
       }
 
       // ต้องมี perms เฉพาะ?
-      const okPerms = requirePerms.every((k) => !!(perms && perms[k]));
+      const okPerms = (requirePerms || []).every((k) => !!(perms && (perms as any)[k]));
       if (!okPerms) {
         setAllowed(false);
         setShowModal(true);
@@ -89,13 +97,19 @@ export default function PermissionGate({
     };
 
     run();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => run());
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      // เมื่อสถานะ auth เปลี่ยน ให้ตรวจใหม่
+      run();
+    });
 
     return () => {
       alive = false;
-      sub.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
-  }, [requireRole, requirePerms.join(',')]);
+  }, [requireRole, permKey]);
 
   if (pending) {
     return <div className="text-slate-500 text-sm">กำลังตรวจสอบสิทธิ์…</div>;
@@ -115,9 +129,7 @@ export default function PermissionGate({
             {/* modal */}
             <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-lg border">
               <div className="p-6">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  ขออภัย คุณไม่มีแพ็กเกจการใช้งาน
-                </h2>
+                <h2 className="text-lg font-semibold text-slate-900">ขออภัย คุณไม่มีแพ็กเกจการใช้งาน</h2>
                 <p className="mt-2 text-sm text-slate-600">
                   กรุณาติดต่อผู้ดูแลระบบ (Admin) เพื่อเปิดสิทธิ์การใช้งานในหน้านี้
                 </p>
@@ -143,5 +155,5 @@ export default function PermissionGate({
     );
   }
 
-  return <>{children}</>;
+  return <>{children}</>; 
 }
