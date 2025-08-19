@@ -1,3 +1,4 @@
+// app/components/TopNav.tsx
 'use client';
 
 import Link from 'next/link';
@@ -22,7 +23,7 @@ export default function TopNav() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
 
-  // ---- load user + role ----
+  // load user + role
   useEffect(() => {
     let ignore = false;
 
@@ -84,9 +85,9 @@ export default function TopNav() {
     router.replace('/login?returnTo=' + encodeURIComponent(pathname || '/'));
   };
 
-  // ---- menus ----
+  // menus
   const commonAuthedLinks = [
-    { href: '/', label: 'Home' },                 // << กลับ Dashboard
+    { href: '/', label: 'Home' },
     { href: '/reading', label: 'เริ่มดูดวง' },
     { href: '/history', label: 'ประวัติ' },
     { href: '/profile', label: 'Profile' },
@@ -113,7 +114,6 @@ export default function TopNav() {
       aria-expanded={menuOpen}
       aria-label="เปิดเมนู"
     >
-      {/* ไอคอน 3 ขีด */}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
       </svg>
@@ -123,15 +123,24 @@ export default function TopNav() {
 
   return (
     <header className="relative z-20">
-      <div className="mx-auto flex max-w-6xl items-center justify-end px-4 py-3">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        {/* ซ้าย: โลโก้เท่านั้น */}
+        <Link href="/" className="flex items-center">
+          <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">
+            DD
+          </div>
+        </Link>
+
         <div className="flex items-center gap-3">
+          {/* ชื่อแอป (ป้ายกดกลับหน้าแรก) */}
           <Link
             href="/"
-            className="hidden sm:block font-medium hover:text-indigo-700"
+            className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
           >
-            Destiny Decode <span className="text-indigo-700">Tarot</span>
+            Destiny Decode Tarot
           </Link>
-          {/* ข้อความผู้ใช้ */}
+
+          {/* สถานะผู้ใช้ */}
           {loading ? (
             <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
@@ -140,12 +149,11 @@ export default function TopNav() {
             </span>
           ) : null}
 
-          {/* ปุ่มแฮมเบอร์เกอร์ */}
           {MenuButton}
         </div>
       </div>
 
-      {/* เมนูแบบเด้งลงมา */}
+      {/* เมนูเด้งลง */}
       {menuOpen && (
         <div className="absolute left-0 right-0 top-full border-t bg-white shadow-lg">
           <nav className="mx-auto grid max-w-6xl gap-1 px-4 py-3 sm:grid-cols-2 md:grid-cols-3">
@@ -176,7 +184,7 @@ export default function TopNav() {
 
                 <button
                   onClick={signOut}
-                  className="rounded-lg px-3 py-2 text-rose-600 hover:bg-rose-50 text-left"
+                  className="rounded-lg px-3 py-2 text-left text-rose-600 hover:bg-rose-50"
                 >
                   Logout
                 </button>
