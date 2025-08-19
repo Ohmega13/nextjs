@@ -1,120 +1,92 @@
 'use client';
 
-import { useState } from 'react';
-import PermissionGate from '../components/PermissionGate';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 
-type CardPick = {
-  name: string;
-  reversed: boolean;
-};
+type Perms = { tarot?: boolean; natal?: boolean; palm?: boolean };
 
-export default function ReadingPage() {
-  const [cards, setCards] = useState<CardPick[]>([]);
-  const [topic, setTopic] = useState('');
+export default function ReadingHome() {
+  const [loading, setLoading] = useState(true);
+  const [perms, setPerms] = useState<Perms>({});
 
-  const fullDeck: string[] = [
-    // ... ใส่ชื่อไพ่ของคุณตามเดิม
-    'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
-    'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
-    'Wheel of Fortune','Justice','The Hanged Man','Death','Temperance',
-    'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World',
-    // ... หรือเพิ่ม Minor Arcana ตามของเดิม
-  ];
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || ignore) { setLoading(false); return; }
+      const { data } = await supabase.from('profiles')
+        .select('permissions').eq('user_id', user.id).maybeSingle();
+      setPerms((data?.permissions as Perms) || {});
+      setLoading(false);
+    })();
 
-  function drawCards(count: number, deckInput: string[] = fullDeck): CardPick[] {
-    const deck = [...deckInput];
-    const picks: CardPick[] = [];
-    for (let i = 0; i < Math.min(count, deck.length); i++) {
-      const idx = Math.floor(Math.random() * deck.length);
-      const name = deck.splice(idx, 1)[0];
-      const reversed = Math.random() < 0.48;
-      picks.push({ name, reversed });
-    }
-    return picks;
-  }
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      if (!s?.user) setPerms({});
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
-  function onDraw(count: number) {
-    const picked = drawCards(count);
-    setCards(picked);
-  }
+  const cards = [
+    {
+      key: 'tarot',
+      title: 'ไพ่ยิปซี (Tarot)',
+      desc: 'สุ่มไพ่/อ่านไพ่',
+      href: '/reading/tarot',
+      emoji: '🔮',
+    },
+    {
+      key: 'natal',
+      title: 'พื้นดวง (Natal)',
+      desc: 'รายละเอียดพื้นดวง',
+      href: '/reading/natal',
+      emoji: '🌌',
+    },
+    {
+      key: 'palm',
+      title: 'ลายมือ (Palm)',
+      desc: 'วิเคราะห์เส้นลายมือ',
+      href: '/reading/palm',
+      emoji: '✋',
+    },
+  ] as const;
 
-  function saveToHistory() {
-    // โครง type ให้ชัดเจน จะไม่ชนกับ TS
-    type HistoryItem = {
-      id: string;
-      date: string;
-      mode: 'tarot';
-      topic?: string;
-      notes?: string;
-      cards: CardPick[];
-    };
-
-    const now = new Date().toISOString();
-    const item: HistoryItem = {
-      id: crypto.randomUUID(),
-      date: now,
-      mode: 'tarot',
-      topic,
-      cards,
-    };
-
-    try {
-      const raw = localStorage.getItem('ddt_history');
-      const arr = raw ? (JSON.parse(raw) as HistoryItem[]) : [];
-      arr.unshift(item);
-      localStorage.setItem('ddt_history', JSON.stringify(arr));
-      alert('บันทึกประวัติแล้ว');
-    } catch {
-      alert('บันทึกไม่สำเร็จ');
-    }
-  }
+  if (loading) return <div className="p-6 text-slate-600">กำลังโหลดสิทธิ์…</div>;
 
   return (
-    <PermissionGate requirePerms={['tarot']}>
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold">เริ่มดูดวง (Tarot)</h1>
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold">เลือกประเภทการดูดวง</h1>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <button className="rounded-lg border px-4 py-2" onClick={() => onDraw(1)}>สุ่ม 1 ใบ</button>
-          <button className="rounded-lg border px-4 py-2" onClick={() => onDraw(3)}>สุ่ม 3 ใบ</button>
-          <button className="rounded-lg border px-4 py-2" onClick={() => onDraw(5)}>สุ่ม 5 ใบ</button>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {cards.map(c => {
+          const allowed = !!(perms as any)[c.key];
+          return (
+            <div key={c.key} className="rounded-xl border p-5">
+              <div className="text-3xl">{c.emoji}</div>
+              <h3 className="mt-2 font-semibold">{c.title}</h3>
+              <p className="text-sm text-slate-600">{c.desc}</p>
 
-        <div className="rounded-xl border p-4">
-          <label className="block text-sm text-slate-600">หัวข้อ/คำถาม</label>
-          <input
-            className="mt-1 w-full rounded-lg border-slate-300"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="พิมพ์หัวข้อที่ต้องการถาม"
-          />
-        </div>
-
-        <div className="rounded-xl border p-4">
-          <h2 className="font-medium mb-2">ไพ่ที่สุ่มได้</h2>
-          {cards.length === 0 ? (
-            <div className="text-slate-500 text-sm">ยังไม่มีไพ่ที่สุ่ม</div>
-          ) : (
-            <ul className="list-disc pl-5">
-              {cards.map((c, i) => (
-                <li key={i}>
-                  {c.name} {c.reversed ? '(กลับหัว)' : ''}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            className="rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-60"
-            onClick={saveToHistory}
-            disabled={cards.length === 0}
-          >
-            บันทึกประวัติ
-          </button>
-        </div>
+              {allowed ? (
+                <Link
+                  href={c.href}
+                  className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-white"
+                >
+                  เริ่มดูดวง
+                </Link>
+              ) : (
+                <button
+                  className="mt-4 inline-block rounded-lg bg-slate-200 px-4 py-2 text-slate-500 cursor-not-allowed"
+                  onClick={() =>
+                    alert('ขออภัย คุณยังไม่มีสิทธิ์ใช้งานประเภทนี้ กรุณาติดต่อแอดมิน')
+                  }
+                >
+                  ยังไม่มีสิทธิ์
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
-    </PermissionGate>
+    </div>
   );
 }
