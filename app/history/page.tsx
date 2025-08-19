@@ -1,143 +1,149 @@
-"use client";
-import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Select, Shell, copy } from "../components/ui";
+// app/history/page.tsx
+'use client';
 
-// หมายเหตุ: สำหรับสมาชิก (member) หน้านี้จะแสดงประวัติของผู้ใช้เองเท่านั้น
-// ตัวกรองเหลือเพียง ประเภทการดูดวง และช่วงวันที่
-export default function HistoryPage(){
-  const [items,setItems]=useState([]);
+import { useEffect, useMemo, useState } from 'react';
 
-  // ตัวกรองที่ผู้ใช้กำลังตั้งค่า (ยังไม่ค้นหา)
-  const [form,setForm]=useState({ mode:"", from:"", to:"" });
-  // ตัวกรองที่ถูก “ยืนยันค้นหา” แล้ว
-  const [applied,setApplied]=useState({ mode:"", from:"", to:"", active:false });
+type HistoryItem = {
+  id: string;
+  date: string;          // ISO (yyyy-mm-dd) หรือ string ที่ new Date() ได้
+  clientId?: string;     // สมาชิกเห็นของตัวเอง ไม่ได้ใช้ client name แล้ว
+  mode?: 'tarot' | 'natal' | 'palm' | string; // เผื่อมีค่าอื่นในอนาคต
+  topic?: string;
+  notes?: string;
+};
 
-  useEffect(()=>{ 
-    try{
-      // ประวัติทั้งหมดบนอุปกรณ์นี้ (ผูกกับผู้ใช้ที่ล็อกอินอุปกรณ์นี้อยู่แล้ว)
-      setItems(JSON.parse(localStorage.getItem("history")||"[]"));
-    }catch{}
-  },[]);
+type Filters = {
+  mode?: '' | 'tarot' | 'natal' | 'palm';
+  from?: string; // yyyy-mm-dd
+  to?: string;   // yyyy-mm-dd
+};
 
-  // สมาชิกไม่ต้องเลือกชื่อลูกดวงอีกต่อไป
-  const canSearch = true;
+export default function HistoryPage() {
+  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [filters, setFilters] = useState<Filters>({
+    mode: '',
+    from: '',
+    to: '',
+  });
 
-  const onSearch = ()=>{
-    setApplied({ ...form, active:true });
-  };
-  const onReset = ()=>{
-    setForm({ mode:"", from:"", to:"" });
-    setApplied({ mode:"", from:"", to:"", active:false });
-  };
+  // โหลดประวัติจาก localStorage (สมาชิกเห็นเฉพาะของตัวเองในอุปกรณ์)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ddt_history');
+      if (!raw) {
+        setItems([]);
+        return;
+      }
+      const parsed = JSON.parse(raw) as HistoryItem[] | unknown;
+      if (Array.isArray(parsed)) setItems(parsed as HistoryItem[]);
+      else setItems([]);
+    } catch {
+      setItems([]);
+    }
+  }, []);
 
-  const filtered = useMemo(()=>{
-    if(!applied.active) return [];
-    return (items||[]).filter(h=>{
-      // ไม่ต้องกรองตามชื่อลูกดวงอีกต่อไป (สมาชิกเห็นเฉพาะประวัติตัวเองที่บันทึกไว้ในเครื่อง)
-      if(applied.mode && (h.mode||"") !== applied.mode) return false;
-      if(applied.from && new Date(h.date) < new Date(applied.from)) return false;
-      if(applied.to && new Date(h.date) > new Date(applied.to + "T23:59:59")) return false;
+  const applied = filters; // แค่ตั้งชื่อสั้น ๆ
+
+  const filtered = useMemo(() => {
+    return (items || []).filter((h) => {
+      // กรองตามประเภทการดูดวง
+      if (applied.mode && (h.mode || '') !== applied.mode) return false;
+
+      // กรองตามช่วงวันที่
+      if (applied.from && new Date(h.date) < new Date(applied.from)) return false;
+      if (
+        applied.to &&
+        new Date(h.date) > new Date(`${applied.to}T23:59:59`)
+      )
+        return false;
+
       return true;
     });
-  },[items, applied]);
-
-  const modes = ["1 ใบ (Quick)","3 ใบ (อดีต-ปัจจุบัน-อนาคต)","5 ใบ (เจาะลึก)","Celtic Cross (10)"];
+  }, [items, applied.mode, applied.from, applied.to]);
 
   return (
-    <Shell title="ประวัติการดูดวง" subtitle="เลือกรูปแบบไพ่ และช่วงวันที่ แล้วกดค้นหา">
-      <Card className="p-4">
-        <div className="grid sm:grid-cols-3 gap-3">
-          <Select label="รูปแบบไพ่" value={form.mode} onChange={e=>setForm(f=>({...f,mode:e.target.value}))}>
-            <option value="">— ทั้งหมด —</option>
-            {modes.map(m=>
-              <option key={m} value={m}>{m}</option>
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold">ประวัติการดูดวงของฉัน</h1>
+
+      {/* ฟิลเตอร์ */}
+      <div className="rounded-xl border p-4 grid gap-3 md:grid-cols-4">
+        <div>
+          <label className="block text-sm text-slate-600">ประเภทการดูดวง</label>
+          <select
+            className="mt-1 w-full rounded-lg border-slate-300"
+            value={filters.mode}
+            onChange={(e) => setFilters((f) => ({ ...f, mode: e.target.value as Filters['mode'] }))}
+          >
+            <option value="">ทั้งหมด</option>
+            <option value="tarot">Tarot</option>
+            <option value="natal">พื้นดวง</option>
+            <option value="palm">ลายมือ</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm text-slate-600">ตั้งแต่วันที่</label>
+          <input
+            type="date"
+            className="mt-1 w-full rounded-lg border-slate-300"
+            value={filters.from}
+            onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-600">ถึงวันที่</label>
+          <input
+            type="date"
+            className="mt-1 w-full rounded-lg border-slate-300"
+            value={filters.to}
+            onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))}
+          />
+        </div>
+        <div className="flex items-end">
+          <button
+            onClick={() => setFilters({ mode: '', from: '', to: '' })}
+            className="rounded-lg border px-4 py-2 w-full hover:bg-slate-50"
+          >
+            ล้างตัวกรอง
+          </button>
+        </div>
+      </div>
+
+      {/* ตาราง */}
+      <div className="rounded-xl border overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-3 py-2 text-left">วันที่</th>
+              <th className="px-3 py-2">ประเภท</th>
+              <th className="px-3 py-2 text-left">หัวข้อ</th>
+              <th className="px-3 py-2 text-left">บันทึก</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h) => (
+              <tr key={h.id} className="border-t">
+                <td className="px-3 py-2">
+                  {new Date(h.date).toLocaleDateString('th-TH')}
+                </td>
+                <td className="px-3 py-2 text-center">{h.mode ?? '-'}</td>
+                <td className="px-3 py-2">{h.topic ?? '-'}</td>
+                <td className="px-3 py-2">{h.notes ?? '-'}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
+                  ไม่พบประวัติที่ตรงกับตัวกรอง
+                </td>
+              </tr>
             )}
-          </Select>
-          <label className="text-sm grid gap-1">
-            <span className="text-slate-700">ตั้งแต่วันที่</span>
-            <input type="date" value={form.from} onChange={e=>setForm(f=>({...f,from:e.target.value}))} className="px-3 py-2 rounded-xl border bg-white"/>
-          </label>
-          <label className="text-sm grid gap-1">
-            <span className="text-slate-700">ถึงวันที่</span>
-            <input type="date" value={form.to} onChange={e=>setForm(f=>({...f,to:e.target.value}))} className="px-3 py-2 rounded-xl border bg-white"/>
-          </label>
-        </div>
+          </tbody>
+        </table>
+      </div>
 
-        <div className="mt-3 flex gap-2">
-          <Button onClick={onSearch} disabled={!canSearch}>ค้นหา</Button>
-          <Button variant="ghost" onClick={onReset}>ล้างตัวกรอง</Button>
-        </div>
-
-        {!applied.active && (
-          <div className="mt-3 text-sm text-slate-500">
-            เลือก <b>รูปแบบไพ่</b> และ/หรือช่วงวันที่ แล้วกด “ค้นหา”
-          </div>
-        )}
-      </Card>
-
-      {applied.active && !filtered.length && (
-        <div className="text-slate-500">ไม่พบประวัติที่ตรงกับเงื่อนไข</div>
-      )}
-
-      {!!filtered.length && (
-        <div className="grid gap-4">
-          {filtered.map(h=>(
-            <Card key={h.id} className="p-5">
-              <div className="flex justify-between text-sm">
-                <div><span className="font-medium">{h.client}</span> • {h.topic} • {h.mode}</div>
-                <div className="text-slate-500">{new Date(h.date).toLocaleString()}</div>
-              </div>
-
-              {!!(h.per_card||[]).length && (
-                <div className="mt-3">
-                  <div className="font-medium">ไพ่ที่เปิดได้ & ความหมายรายใบ</div>
-                  <ul className="list-disc ml-5 text-sm space-y-1">
-                    {(h.per_card||[]).map((pc,i)=>(<li key={i}><b>{pc.name}:</b> {pc.meaning}</li>))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="mt-3">
-                <div className="font-medium">สรุปความหมาย</div>
-                <p className="text-sm whitespace-pre-wrap">{h.summary}</p>
-              </div>
-
-              {!!(h.advices||[]).length && (
-                <div className="mt-3">
-                  <div className="font-medium">คำแนะนำ</div>
-                  <ul className="list-disc ml-5 text-sm">
-                    {(h.advices||[]).map((a,i)=>(<li key={i}>{a}</li>))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="mt-3 flex gap-2">
-                <Button variant="ghost" onClick={()=>copy(exportText(h))}>คัดลอกสรุป</Button>
-                <Button variant="ghost" onClick={()=>window.print()}>พิมพ์ / PDF</Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-    </Shell>
+      <p className="text-xs text-slate-500">
+        * สมาชิกจะเห็นเฉพาะประวัติบนอุปกรณ์ของตนเองเท่านั้น
+      </p>
+    </div>
   );
-}
-
-function exportText(h){
-  const per = (h.per_card||[]).map(pc=>`- ${pc.name}: ${pc.meaning}`).join("\n");
-  const adv = (h.advices||[]).map(a=>`• ${a}`).join("\n");
-  return `ลูกดวง: ${h.client}
-วันที่: ${new Date(h.date).toLocaleString()}
-หัวข้อ: ${h.topic}
-รูปแบบ: ${h.mode}
-
-ไพ่ที่เปิดได้ & ความหมายรายใบ:
-${per}
-
-สรุปความหมาย:
-${h.summary}
-
-คำแนะนำ:
-${adv}
-`;
 }
