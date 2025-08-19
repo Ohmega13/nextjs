@@ -2,12 +2,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 type Props = {
   /** รายการสิทธิ์ที่จำเป็น ต้องเป็น true ครบทุกตัวถึงจะผ่าน */
   requirePerms?: string[];
-  children: React.ReactNode;
+  children: ReactNode;
 };
 
 type ProfileRow = {
@@ -76,7 +77,7 @@ export default function PermissionGate({ requirePerms = [], children }: Props) {
     return requirePerms.every((k) => perms?.[k] === true);
   }, [requirePerms, perms]);
 
-  // เตือน popup ครั้งเดียวถ้าไม่มีสิทธิ์
+  // เตือน popup ครั้งเดียวถ้าไม่มีสิทธิ์ (ผูกกับ reqKey เพื่อให้ deps คงที่)
   const reqKey = useMemo(() => requirePerms.join('|'), [requirePerms]);
   useEffect(() => {
     if (!loading && isLoggedIn && !hasPermission && !alerted.current) {
