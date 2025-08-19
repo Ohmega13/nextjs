@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter, usePathname } from 'next/navigation';
 
@@ -150,7 +150,7 @@ export default function TopNav() {
   );
 
   // เลือกเมนูที่จะแสดง
-  let Links: JSX.Element = PublicLinks;
+  let Links: React.ReactElement = PublicLinks;
   if (!loading) {
     if (role === 'admin') Links = AdminLinks;
     else if (role === 'member') Links = MemberLinks;
