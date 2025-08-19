@@ -12,6 +12,7 @@ import {
   uid,
 } from "../components/ui";
 import { idbPutImage } from "../lib/idb";
+import PermissionGate from "../components/PermissionGate";
 
 // หัวข้อให้ติ๊กได้หลายเรื่อง
 const TOPIC_OPTIONS = [
@@ -291,148 +292,151 @@ export default function ReadingPage() {
           </div>
         </Section>
 
-        {/* -------- TAROT -------- */}
         {method === "tarot" && (
-          <>
-            <Section title="ประเภทไพ่ยิปซี">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <select
-                  className="px-3 py-2 rounded-xl border bg-white"
-                  value={tarotType}
-                  onChange={(e) => {
-                    setTarotType(e.target.value);
-                    setCards([]);
-                  }}
+          <PermissionGate requirePerms={["tarot"]} redirectTo="/">
+            <>
+              <Section title="ประเภทไพ่ยิปซี">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <select
+                    className="px-3 py-2 rounded-xl border bg-white"
+                    value={tarotType}
+                    onChange={(e) => {
+                      setTarotType(e.target.value);
+                      setCards([]);
+                    }}
+                  >
+                    <option value="ask-3">ถามเรื่องต่าง ๆ (3 ใบ)</option>
+                    <option value="weigh-1v1">ชั่งน้ำหนักตัดสินใจ (1 ใบ/ตัวเลือก)</option>
+                    <option value="celtic-10">คลาสสิค Celtic Cross (10 ใบ)</option>
+                  </select>
+                </div>
+              </Section>
+
+              <Section title="เลือกหัวข้อที่อยากดู (ติ๊กได้หลายข้อ)">
+                <div className="grid sm:grid-cols-3 gap-2">
+                  {TOPIC_OPTIONS.map((opt) => {
+                    const checked = topics.includes(opt);
+                    return (
+                      <label
+                        key={opt}
+                        className="text-sm inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white hover:bg-sky-50"
+                      >
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          checked={checked}
+                          onChange={(e) => {
+                            setTopics((prev) =>
+                              e.target.checked
+                                ? [...prev, opt]
+                                : prev.filter((x) => x !== opt)
+                            );
+                          }}
+                        />
+                        <span>{opt}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <TextArea
+                  label="รายละเอียดคำถาม (ถ้ามีหัวข้ออื่น ๆ หรืออยากเจาะจง)"
+                  value={details}
+                  onChange={(e) => setDetails(e.target.value)}
+                  placeholder="พิมพ์รายละเอียดเพิ่มเติม เช่น เปรียบเทียบงาน A/B หรือบริบทคำถาม"
+                />
+              </Section>
+
+              <Section title="ไพ่ที่สุ่มได้ (พรีวิว)">
+                <div className="flex flex-wrap gap-2">
+                  {cards.map((c, i) => (
+                    <Badge key={i}>
+                      {c.name}
+                      {c.reversed ? " (กลับหัว)" : ""}
+                    </Badge>
+                  ))}
+                  {!cards.length && (
+                    <div className="text-slate-500 text-sm">ยังไม่สุ่มไพ่</div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex gap-2">
+                  <Button variant="ghost" onClick={previewTarot}>
+                    สุ่มไพ่ใหม่
+                  </Button>
+                  <Button
+                    onClick={start}
+                    disabled={!selected || !canSendTarot}
+                  >
+                    ส่งให้ซีวิเคราะห์ & บันทึก
+                  </Button>
+                </div>
+              </Section>
+            </>
+          </PermissionGate>
+        )}
+
+        {method === "astrology" && (
+          <PermissionGate requirePerms={["natal"]} redirectTo="/">
+            <Section title="เลือกระบบโหราศาสตร์">
+              <div className="flex gap-2">
+                <button
+                  className={`px-3 py-2 rounded-xl border ${
+                    astroSystem === "thai" ? "bg-sky-50 border-sky-200" : ""
+                  }`}
+                  onClick={() => setAstroSystem("thai")}
                 >
-                  <option value="ask-3">ถามเรื่องต่าง ๆ (3 ใบ)</option>
-                  <option value="weigh-1v1">ชั่งน้ำหนักตัดสินใจ (1 ใบ/ตัวเลือก)</option>
-                  <option value="celtic-10">คลาสสิค Celtic Cross (10 ใบ)</option>
-                </select>
+                  ไทย
+                </button>
+                <button
+                  className={`px-3 py-2 rounded-xl border ${
+                    astroSystem === "western" ? "bg-sky-50 border-sky-200" : ""
+                  }`}
+                  onClick={() => setAstroSystem("western")}
+                >
+                  ตะวันตก
+                </button>
               </div>
-            </Section>
-
-            <Section title="เลือกหัวข้อที่อยากดู (ติ๊กได้หลายข้อ)">
-              <div className="grid sm:grid-cols-3 gap-2">
-                {TOPIC_OPTIONS.map((opt) => {
-                  const checked = topics.includes(opt);
-                  return (
-                    <label
-                      key={opt}
-                      className="text-sm inline-flex items-center gap-2 px-3 py-2 rounded-xl border bg-white hover:bg-sky-50"
-                    >
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4"
-                        checked={checked}
-                        onChange={(e) => {
-                          setTopics((prev) =>
-                            e.target.checked
-                              ? [...prev, opt]
-                              : prev.filter((x) => x !== opt)
-                          );
-                        }}
-                      />
-                      <span>{opt}</span>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <TextArea
-                label="รายละเอียดคำถาม (ถ้ามีหัวข้ออื่น ๆ หรืออยากเจาะจง)"
-                value={details}
-                onChange={(e) => setDetails(e.target.value)}
-                placeholder="พิมพ์รายละเอียดเพิ่มเติม เช่น เปรียบเทียบงาน A/B หรือบริบทคำถาม"
-              />
-            </Section>
-
-            <Section title="ไพ่ที่สุ่มได้ (พรีวิว)">
-              <div className="flex flex-wrap gap-2">
-                {cards.map((c, i) => (
-                  <Badge key={i}>
-                    {c.name}
-                    {c.reversed ? " (กลับหัว)" : ""}
-                  </Badge>
-                ))}
-                {!cards.length && (
-                  <div className="text-slate-500 text-sm">ยังไม่สุ่มไพ่</div>
-                )}
-              </div>
-
-              <div className="mt-3 flex gap-2">
-                <Button variant="ghost" onClick={previewTarot}>
-                  สุ่มไพ่ใหม่
+              <div className="mt-3">
+                <Button onClick={start} disabled={!selected}>
+                  ให้ซีสรุปพื้นดวง & บันทึก
                 </Button>
+              </div>
+            </Section>
+          </PermissionGate>
+        )}
+
+        {method === "palm" && (
+          <PermissionGate requirePerms={["palm"]} redirectTo="/">
+            <Section title="อัปโหลดรูปมือ">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="text-sm grid gap-1">
+                  <span className="text-slate-700">มือซ้าย (จำเป็น)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setLeftFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <label className="text-sm grid gap-1">
+                  <span className="text-slate-700">มือขวา (จำเป็น)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setRightFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+              </div>
+              <div className="mt-3">
                 <Button
                   onClick={start}
-                  disabled={!selected || !canSendTarot}
+                  disabled={!selected || !leftFile || !rightFile}
                 >
-                  ส่งให้ซีวิเคราะห์ & บันทึก
+                  ส่งรูปให้ซีวิเคราะห์ & บันทึก
                 </Button>
               </div>
             </Section>
-          </>
-        )}
-
-        {/* -------- ASTROLOGY -------- */}
-        {method === "astrology" && (
-          <Section title="เลือกระบบโหราศาสตร์">
-            <div className="flex gap-2">
-              <button
-                className={`px-3 py-2 rounded-xl border ${
-                  astroSystem === "thai" ? "bg-sky-50 border-sky-200" : ""
-                }`}
-                onClick={() => setAstroSystem("thai")}
-              >
-                ไทย
-              </button>
-              <button
-                className={`px-3 py-2 rounded-xl border ${
-                  astroSystem === "western" ? "bg-sky-50 border-sky-200" : ""
-                }`}
-                onClick={() => setAstroSystem("western")}
-              >
-                ตะวันตก
-              </button>
-            </div>
-            <div className="mt-3">
-              <Button onClick={start} disabled={!selected}>
-                ให้ซีสรุปพื้นดวง & บันทึก
-              </Button>
-            </div>
-          </Section>
-        )}
-
-        {/* -------- PALM -------- */}
-        {method === "palm" && (
-          <Section title="อัปโหลดรูปมือ">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <label className="text-sm grid gap-1">
-                <span className="text-slate-700">มือซ้าย (จำเป็น)</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setLeftFile(e.target.files?.[0] || null)}
-                />
-              </label>
-              <label className="text-sm grid gap-1">
-                <span className="text-slate-700">มือขวา (จำเป็น)</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setRightFile(e.target.files?.[0] || null)}
-                />
-              </label>
-            </div>
-            <div className="mt-3">
-              <Button
-                onClick={start}
-                disabled={!selected || !leftFile || !rightFile}
-              >
-                ส่งรูปให้ซีวิเคราะห์ & บันทึก
-              </Button>
-            </div>
-          </Section>
+          </PermissionGate>
         )}
       </Shell>
       <Toast />
