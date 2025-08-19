@@ -1,13 +1,35 @@
 'use client';
 
-import PermissionGate from '../../components/PermissionGate';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import PermissionGate from '@/components/PermissionGate';
+import ClientPicker from '@/components/ClientPicker';
 
 type CardPick = { name: string; reversed: boolean };
 
-export default function TarotPage() {
-  const [cards, setCards] = useState<CardPick[]>([]);
+export default function TarotReadingPage() {
   const [topic, setTopic] = useState('');
+  const [cards, setCards] = useState<CardPick[]>([]);
+  const [role, setRole] = useState<string | null>(null);
+
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientName, setClientName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || ignore) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('role, display_name')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!ignore) setRole((data as any)?.role ?? null);
+    })();
+    return () => { ignore = true; };
+  }, []);
 
   const fullDeck: string[] = [
     'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
@@ -16,8 +38,8 @@ export default function TarotPage() {
     'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World',
   ];
 
-  function drawCards(count: number, deckInput: string[] = fullDeck): CardPick[] {
-    const deck = [...deckInput];
+  function draw(count: number) {
+    const deck = [...fullDeck];
     const picks: CardPick[] = [];
     for (let i = 0; i < Math.min(count, deck.length); i++) {
       const idx = Math.floor(Math.random() * deck.length);
@@ -25,48 +47,70 @@ export default function TarotPage() {
       const reversed = Math.random() < 0.48;
       picks.push({ name, reversed });
     }
-    return picks;
+    setCards(picks);
   }
-
-  function onDraw(n: number) { setCards(drawCards(n)); }
 
   function saveToHistory() {
     type HistoryItem = {
-      id: string; date: string; mode: 'tarot'; topic?: string; cards: CardPick[];
+      id: string;
+      date: string;
+      mode: 'tarot';
+      topic?: string;
+      cards: CardPick[];
+      clientId?: string | null;
+      clientName?: string | null;
     };
+
     const item: HistoryItem = {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
       mode: 'tarot',
       topic,
       cards,
+      clientId: role === 'admin' ? clientId : null,
+      clientName: role === 'admin' ? clientName : null,
     };
-    const raw = localStorage.getItem('ddt_history');
-    const arr = raw ? (JSON.parse(raw) as HistoryItem[]) : [];
-    arr.unshift(item);
-    localStorage.setItem('ddt_history', JSON.stringify(arr));
-    alert('บันทึกประวัติแล้ว');
+
+    try {
+      const raw = localStorage.getItem('ddt_history');
+      const arr = raw ? (JSON.parse(raw) as HistoryItem[]) : [];
+      arr.unshift(item);
+      localStorage.setItem('ddt_history', JSON.stringify(arr));
+      alert('บันทึกประวัติแล้ว');
+    } catch {
+      alert('บันทึกไม่สำเร็จ');
+    }
   }
 
   return (
     <PermissionGate requirePerms={['tarot']}>
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold">เริ่มดูดวง (Tarot)</h1>
+      <div className="space-y-6">
+        <h1 className="text-xl font-semibold">ดูดวงไพ่ยิปซี (Tarot)</h1>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <button className="rounded-lg border px-4 py-2" onClick={() => onDraw(1)}>สุ่ม 1 ใบ</button>
-          <button className="rounded-lg border px-4 py-2" onClick={() => onDraw(3)}>สุ่ม 3 ใบ</button>
-          <button className="rounded-lg border px-4 py-2" onClick={() => onDraw(5)}>สุ่ม 5 ใบ</button>
-        </div>
+        {role === 'admin' && (
+          <ClientPicker
+            value={clientId}
+            onChange={(id, client) => {
+              setClientId(id);
+              setClientName(client?.name || client?.email || null);
+            }}
+          />
+        )}
 
-        <div className="rounded-xl border p-4">
-          <label className="block text-sm text-slate-600">หัวข้อ/คำถาม</label>
+        <div className="rounded-xl border p-4 space-y-2">
+          <label className="text-sm text-slate-600">หัวข้อ/คำถาม</label>
           <input
-            className="mt-1 w-full rounded-lg border-slate-300"
+            className="w-full rounded-lg border px-3 py-2"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="พิมพ์หัวข้อที่ต้องการถาม"
           />
+
+          <div className="grid gap-3 sm:grid-cols-3 mt-2">
+            <button className="rounded-lg border px-4 py-2" onClick={() => draw(1)}>สุ่ม 1 ใบ</button>
+            <button className="rounded-lg border px-4 py-2" onClick={() => draw(3)}>สุ่ม 3 ใบ</button>
+            <button className="rounded-lg border px-4 py-2" onClick={() => draw(5)}>สุ่ม 5 ใบ</button>
+          </div>
         </div>
 
         <div className="rounded-xl border p-4">
@@ -84,8 +128,8 @@ export default function TarotPage() {
 
         <button
           className="rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-60"
-          onClick={saveToHistory}
           disabled={cards.length === 0}
+          onClick={saveToHistory}
         >
           บันทึกประวัติ
         </button>
