@@ -1,4 +1,3 @@
-// app/components/TopNav.tsx
 'use client';
 
 import Link from 'next/link';
@@ -11,79 +10,73 @@ type ProfileRow = {
   role: string | null;
   display_name: string | null;
   permissions?: Record<string, boolean> | null;
-} | null;
+};
 
 export default function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
+
+  // โหมดมินิมอลเฉพาะหน้า login
+  const isLoginPage = pathname === '/login';
 
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
 
-  // helper: โหลด role/display_name จากตาราง profiles
-  const fetchProfile = async (uid: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('user_id, role, display_name, permissions')
-      .eq('user_id', uid)
-      .maybeSingle();
-
-    if (error) {
-      // ถ้า policy ยังไม่พร้อม/โปรไฟล์ยังไม่ถูก seed ก็ไม่ทำให้ UI พัง
-      return null as ProfileRow;
-    }
-    return (data ?? null) as ProfileRow;
-  };
-
   useEffect(() => {
-    let cancelled = false;
+    let ignore = false;
 
     const seed = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (cancelled) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (ignore) return;
 
-        if (user) {
-          setUserEmail(user.email ?? null);
-          const meta: any = user.user_metadata || {};
-          setDisplayName(meta.full_name || meta.name || user.email || null);
+      if (user) {
+        setUserEmail(user.email ?? null);
+        const meta: any = user.user_metadata || {};
+        setDisplayName(meta.full_name || meta.name || user.email || null);
 
-          const prof = await fetchProfile(user.id);
-          setRole(prof?.role ?? null);
-        } else {
-          setUserEmail(null);
-          setDisplayName(null);
-          setRole(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('user_id, role, display_name, permissions')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        setRole((prof as ProfileRow | null)?.role ?? null);
+      } else {
+        setUserEmail(null);
+        setDisplayName(null);
+        setRole(null);
       }
+      setLoading(false);
     };
 
     seed();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const u = session?.user ?? null;
+      const u = session?.user || null;
       setUserEmail(u?.email ?? null);
-
       const meta: any = u?.user_metadata || {};
-      setDisplayName(u ? (meta.full_name || meta.name || u.email || null) : null);
+      setDisplayName(meta?.full_name || meta?.name || u?.email || null);
 
       if (u) {
-        const prof = await fetchProfile(u.id);
-        setRole(prof?.role ?? null);
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('user_id, role, display_name, permissions')
+          .eq('user_id', u.id)
+          .maybeSingle();
+
+        setRole((prof as ProfileRow | null)?.role ?? null);
       } else {
         setRole(null);
       }
+
       setLoading(false);
     });
 
     return () => {
-      cancelled = true;
-      // ป้องกันกรณี object ไม่มี subscription
-      sub?.subscription?.unsubscribe?.();
+      sub.subscription.unsubscribe();
+      ignore = true;
     };
   }, []);
 
@@ -92,7 +85,8 @@ export default function TopNav() {
     router.replace('/login?returnTo=' + encodeURIComponent(pathname || '/'));
   };
 
-  const commonLinks = (
+  // เมนูสำหรับหน้าปกติ
+  const normalLinks = (
     <>
       <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/clients">ลงทะเบียนลูกดวง</Link>
       <span className="text-slate-300 px-1">|</span>
@@ -104,14 +98,10 @@ export default function TopNav() {
       <span className="text-slate-300 px-1">|</span>
       <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/backup">Backup</Link>
 
-      {/* ลิงก์ “สมาชิก” เฉพาะแอดมิน */}
       {role === 'admin' && (
         <>
           <span className="text-slate-300 px-1">|</span>
-          <Link
-            className="px-3 py-2 rounded-xl hover:bg-indigo-50 font-medium text-indigo-700"
-            href="/members"
-          >
+          <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50 font-medium text-indigo-700" href="/members">
             สมาชิก
           </Link>
         </>
@@ -119,9 +109,32 @@ export default function TopNav() {
     </>
   );
 
+  // เมนูสำหรับหน้า login (มินิมอล)
+  const loginLinks = (
+    <>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
+      <span className="text-slate-300 px-1">|</span>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
+      <span className="text-slate-300 px-1">|</span>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/about">เกี่ยวกับเรา</Link>
+      <span className="text-slate-300 px-1">|</span>
+      <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/contact">ติดต่อเรา</Link>
+    </>
+  );
+
+  // ถ้าเป็นหน้า login ให้แสดงเฉพาะเมนู และตัดส่วน user info ออก
+  if (isLoginPage) {
+    return (
+      <nav className="flex items-center gap-1 text-sm">
+        {loginLinks}
+      </nav>
+    );
+  }
+
+  // หน้าปกติ
   return (
     <nav className="flex items-center gap-1 text-sm">
-      {commonLinks}
+      {normalLinks}
       <span className="text-slate-300 px-1">|</span>
 
       {loading ? (
