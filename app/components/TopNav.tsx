@@ -140,18 +140,18 @@ export default function TopNav() {
           </span>
         </Link>
 
-        <div className="ml-auto flex items-center gap-3">
-
-          {/* สถานะผู้ใช้ */}
-          {loading ? (
-            <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
-          ) : userEmail ? (
-            <span className="hidden text-sm text-slate-600 sm:block">
-              สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
-            </span>
-          ) : null}
-
-          {MenuButton}
+        <div className="ml-auto flex items-center gap-3 justify-end w-full">
+          <div className="flex items-center gap-3">
+            {/* สถานะผู้ใช้ */}
+            {loading ? (
+              <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
+            ) : userEmail ? (
+              <span className="hidden text-sm text-slate-600 sm:block">
+                สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
+              </span>
+            ) : null}
+            {MenuButton}
+          </div>
         </div>
       </div>
 
