@@ -1,4 +1,3 @@
-// app/components/TopNav.tsx
 'use client';
 
 import Link from 'next/link';
@@ -130,28 +129,26 @@ export default function TopNav() {
   return (
     <header className="relative z-20">
       <div className="mx-auto flex max-w-6xl items-center px-4 py-3">
-        {/* ซ้าย: โลโก้ + ชื่อแอป */}
         <Link href="/" className="flex items-center gap-3" aria-label="ไปหน้าแรก">
-          <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">
-            DD
-          </div>
+          <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">DD</div>
           <span className="hidden sm:inline-block text-base font-medium text-slate-800">
             Destiny Decode <span className="text-indigo-600">Tarot</span>
           </span>
         </Link>
 
-        <div className="ml-auto flex items-center gap-3 justify-end w-full">
-          <div className="flex items-center gap-3">
-            {/* สถานะผู้ใช้ */}
-            {loading ? (
-              <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
-            ) : userEmail ? (
-              <span className="hidden text-sm text-slate-600 sm:block">
-                สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
-              </span>
-            ) : null}
-            {MenuButton}
-          </div>
+        {/* spacer to push items to the far right */}
+        <div className="flex-1" />
+
+        {/* Right cluster: greeting + menu button */}
+        <div className="flex items-center gap-3">
+          {loading ? (
+            <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
+          ) : userEmail ? (
+            <span className="hidden text-sm text-slate-600 sm:block">
+              สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
+            </span>
+          ) : null}
+          {MenuButton}
         </div>
       </div>
 

@@ -85,7 +85,7 @@ export default function ClientDashboard() {
       <section className="mx-auto max-w-6xl px-4 py-10">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <h1 className="text-3xl font-bold tracking-tight">
-            ศูนย์ควบคุมการดูดวง <span className="text-indigo-600">Destiny Decode</span>
+            ศูนย์ควบคุมการดูดวง <span className="text-indigo-600">Destiny Decode Tarot</span>
           </h1>
           <p className="mt-2 text-slate-600">
             {role === 'admin' ? 'โหมดแอดมิน — เข้าถึงทุกเมนู' : 'โหมดสมาชิก — เมนูสำหรับผู้ใช้งานทั่วไป'}
