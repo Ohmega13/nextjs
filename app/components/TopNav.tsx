@@ -138,13 +138,6 @@ export default function TopNav() {
         </Link>
 
         <div className="flex items-center gap-3">
-          {/* ชื่อแอป (ป้ายกดกลับหน้าแรก) */}
-          <Link
-            href="/"
-            className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
-          >
-            Destiny Decode Tarot
-          </Link>
 
           {/* สถานะผู้ใช้ */}
           {loading ? (

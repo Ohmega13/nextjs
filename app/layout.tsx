@@ -25,17 +25,6 @@ export default function RootLayout({
         {/* Topbar */}
         <header className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur">
           <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-            {/* logo */}
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white grid place-items-center font-semibold">
-                DD
-              </div>
-              <div className="font-semibold">
-                Destiny Decode <span className="text-indigo-600">Tarot</span>
-              </div>
-            </div>
-
-            {/* navigation */}
             <TopNav />
           </div>
         </header>
