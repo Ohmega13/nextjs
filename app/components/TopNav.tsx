@@ -128,7 +128,7 @@ export default function TopNav() {
 
   return (
     <header className="relative z-20">
-      <div className="mx-auto flex max-w-6xl items-center px-4 py-3">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <Link href="/" className="flex items-center gap-3" aria-label="ไปหน้าแรก">
           <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">DD</div>
           <span className="hidden sm:inline-block text-base font-medium text-slate-800">
@@ -136,8 +136,6 @@ export default function TopNav() {
           </span>
         </Link>
 
-        {/* spacer to push items to the far right */}
-        <div className="flex-1" />
 
         {/* Right cluster: greeting + menu button */}
         <div className="flex items-center gap-3">
