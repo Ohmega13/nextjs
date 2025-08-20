@@ -138,7 +138,7 @@ export default function TopNav() {
 
 
         {/* Right cluster: greeting + menu button */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 ml-auto">
           {loading ? (
             <span className="text-sm text-slate-500">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
