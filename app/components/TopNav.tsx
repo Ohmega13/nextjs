@@ -135,6 +135,7 @@ export default function TopNav() {
           <div className="h-8 w-8 rounded-full bg-indigo-600 text-white grid place-items-center font-bold">
             DD
           </div>
+          <span className="ml-2 hidden sm:inline-block text-lg font-semibold text-slate-800">Destiny Decode Tarot</span>
         </Link>
 
         <div className="flex items-center gap-3">
