@@ -103,8 +103,8 @@ export default function TarotReadingPage() {
 
   return (
     <PermissionGate requirePerms={['tarot']}>
-      <div className="space-y-6">
-        <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
+      <div className="space-y-6 max-w-3xl mx-auto px-4 sm:px-0">
+        <h1 className="text-lg sm:text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
 
         {/* Admin เท่านั้นถึงจะเลือกชื่อลูกดวงได้ */}
         {role === 'admin' ? (
@@ -127,19 +127,19 @@ export default function TarotReadingPage() {
           <label className="text-sm text-slate-600">ประเภทไพ่ที่เปิด</label>
           <div className="grid gap-2 sm:grid-cols-3">
             <button
-              className={`rounded-lg border px-3 py-2 ${readingType==='3cards'?'bg-indigo-600 text-white':'bg-white'}`}
+              className={`w-full rounded-lg border px-3 py-3 sm:py-2 ${readingType==='3cards'?'bg-indigo-600 text-white':'bg-white'}`}
               onClick={() => setReadingType('3cards')}
             >
               ถามเรื่องต่างๆ 3 ใบ
             </button>
             <button
-              className={`rounded-lg border px-3 py-2 ${readingType==='weigh'?'bg-indigo-600 text-white':'bg-white'}`}
+              className={`w-full rounded-lg border px-3 py-3 sm:py-2 ${readingType==='weigh'?'bg-indigo-600 text-white':'bg-white'}`}
               onClick={() => setReadingType('weigh')}
             >
               ถามชั่งน้ำหนัก 1 ใบต่อตัวเลือก
             </button>
             <button
-              className={`rounded-lg border px-3 py-2 ${readingType==='celtic'?'bg-indigo-600 text-white':'bg-white'}`}
+              className={`w-full rounded-lg border px-3 py-3 sm:py-2 ${readingType==='celtic'?'bg-indigo-600 text-white':'bg-white'}`}
               onClick={() => setReadingType('celtic')}
             >
               แบบคลาสสิก 10 ใบ
@@ -151,7 +151,7 @@ export default function TarotReadingPage() {
             <div>
               <label className="text-sm text-slate-600">หัวข้อ/คำถาม</label>
               <input
-                className="mt-1 w-full rounded-lg border px-3 py-2"
+                className="mt-1 w-full h-11 rounded-lg border px-3"
                 value={topic}
                 onChange={(e)=>setTopic(e.target.value)}
                 placeholder="พิมพ์สิ่งที่อยากถาม"
@@ -163,7 +163,7 @@ export default function TarotReadingPage() {
                 <div className="space-y-2 mt-1">
                   {options.map((op, i)=>(
                     <input key={i}
-                      className="w-full rounded-lg border px-3 py-2"
+                      className="w-full h-11 rounded-lg border px-3"
                       value={op}
                       onChange={(e)=>{
                         const arr=[...options]; arr[i]=e.target.value; setOptions(arr);
@@ -171,9 +171,9 @@ export default function TarotReadingPage() {
                     />
                   ))}
                   <div className="flex gap-2">
-                    <button className="rounded-lg border px-3 py-1" onClick={()=>setOptions([...options, `ตัวเลือก ${options.length+1}`])}>+ เพิ่มตัวเลือก</button>
+                    <button className="rounded-lg border px-3 min-h-[40px]" onClick={()=>setOptions([...options, `ตัวเลือก ${options.length+1}`])}>+ เพิ่มตัวเลือก</button>
                     {options.length>2 && (
-                      <button className="rounded-lg border px-3 py-1" onClick={()=>setOptions(options.slice(0,-1))}>− ลบตัวเลือกท้าย</button>
+                      <button className="rounded-lg border px-3 min-h-[40px]" onClick={()=>setOptions(options.slice(0,-1))}>− ลบตัวเลือกท้าย</button>
                     )}
                   </div>
                 </div>
@@ -182,7 +182,7 @@ export default function TarotReadingPage() {
           </div>
 
           <div className="pt-2">
-            <button className="rounded-lg bg-indigo-600 text-white px-4 py-2" onClick={draw}>
+            <button className="w-full sm:w-auto rounded-lg bg-indigo-600 text-white px-4 py-3 sm:py-2" onClick={draw}>
               ดูดวง
             </button>
           </div>
@@ -206,7 +206,7 @@ export default function TarotReadingPage() {
             </div>
 
             <div>
-              <button className="rounded-lg bg-emerald-600 text-white px-4 py-2" onClick={saveToHistory}>
+              <button className="w-full sm:w-auto rounded-lg bg-emerald-600 text-white px-4 py-3 sm:py-2" onClick={saveToHistory}>
                 บันทึกผลลัพธ์
               </button>
             </div>

@@ -42,28 +42,28 @@ export default function ReadingHome() {
   if (loading) return <div className="p-6 text-slate-600">กำลังโหลดสิทธิ์…</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <h1 className="text-xl font-semibold">เลือกประเภทการดูดวง</h1>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map(c => {
           const allowed = !!(perms as any)[c.key];
           return (
-            <div key={c.key} className="rounded-xl border p-5">
+            <div key={c.key} className="rounded-xl border p-5 flex flex-col h-full">
               <div className="text-3xl">{c.emoji}</div>
-              <h3 className="mt-2 font-semibold">{c.title}</h3>
-              <p className="text-sm text-slate-600">{c.desc}</p>
+              <h3 className="mt-2 font-semibold text-center sm:text-left">{c.title}</h3>
+              <p className="text-sm text-slate-600 text-center sm:text-left">{c.desc}</p>
 
               {allowed ? (
                 <Link
                   href={c.href}
-                  className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-white"
+                  className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-white w-full sm:w-auto text-center"
                 >
                   เริ่มดูดวง
                 </Link>
               ) : (
                 <button
-                  className="mt-4 inline-block rounded-lg bg-slate-200 px-4 py-2 text-slate-500 cursor-not-allowed"
+                  className="mt-4 inline-block rounded-lg bg-slate-200 px-4 py-2 text-slate-500 cursor-not-allowed w-full sm:w-auto text-center"
                   onClick={() => alert('ขออภัย คุณยังไม่มีสิทธิ์ใช้งานประเภทนี้ กรุณาติดต่อแอดมิน')}
                 >
                   ยังไม่มีสิทธิ์

@@ -80,42 +80,49 @@ export default function ClientsManagePage() {
   return (
     <>
       <Shell title="ประวัติลูกดวง" subtitle="ค้นหา ดูรายละเอียด แก้ไข หรือลบลูกดวง">
-        <Card className="p-4">
-          <div className="grid sm:grid-cols-3 gap-3">
+        <Card className="p-4 sm:p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Input
               label="ค้นหาลูกดวง"
               value={q}
               onChange={e=>setQ(e.target.value)}
               placeholder="พิมพ์ชื่อ, ชื่อเล่น, ช่องทางติดต่อ, สถานที่เกิด"
             />
-            <div className="self-end">
-              <a href="/clients"><Button variant="ghost">+ เพิ่มลูกดวงใหม่</Button></a>
+            <div className="self-end sm:self-auto">
+              <a href="/clients">
+                <Button variant="ghost" className="w-full sm:w-auto">+ เพิ่มลูกดวงใหม่</Button>
+              </a>
             </div>
           </div>
         </Card>
 
         {!filtered.length ? (
-          <div className="text-slate-500">ไม่พบบัญชีลูกดวง</div>
+          <Card className="p-5 text-center text-slate-600">
+            <div className="mb-3">ไม่พบบัญชีลูกดวง</div>
+            <a href="/clients">
+              <Button className="w-full sm:w-auto">+ เพิ่มลูกดวงใหม่</Button>
+            </a>
+          </Card>
         ) : (
           <div className="grid gap-4">
             {filtered.map(c=>(
-              <Card key={c.id} className="p-5">
+              <Card key={c.id} className="p-4 sm:p-5">
                 {/* Header */}
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3">
                   <div className="text-sm">
                     <div className="font-medium">{c.name} {c.nickname?`(${c.nickname})`:""}</div>
-                    <div className="text-slate-500">สร้างเมื่อ {new Date(c.createdAt).toLocaleString()}</div>
+                    <div className="text-slate-500">สร้างเมื่อ {c.createdAt ? new Date(c.createdAt).toLocaleString() : "-"}</div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                     {editingId===c.id ? (
                       <>
-                        <Button onClick={saveEdit}>บันทึก</Button>
-                        <Button variant="ghost" onClick={cancelEdit}>ยกเลิก</Button>
+                        <Button onClick={saveEdit} className="w-full sm:w-auto">บันทึก</Button>
+                        <Button variant="ghost" onClick={cancelEdit} className="w-full sm:w-auto">ยกเลิก</Button>
                       </>
                     ) : (
                       <>
-                        <Button variant="ghost" onClick={()=>startEdit(c)}>แก้ไข</Button>
-                        <Button variant="danger" onClick={()=>deleteClient(c)}>ลบ</Button>
+                        <Button variant="ghost" onClick={()=>startEdit(c)} className="w-full sm:w-auto">แก้ไข</Button>
+                        <Button variant="danger" onClick={()=>deleteClient(c)} className="w-full sm:w-auto">ลบ</Button>
                       </>
                     )}
                   </div>
@@ -123,7 +130,7 @@ export default function ClientsManagePage() {
 
                 {/* Content */}
                 {editingId===c.id ? (
-                  <div className="mt-4 grid sm:grid-cols-2 gap-3">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Input label="ชื่อ-สกุล *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
                     <Input label="ชื่อเล่น" value={form.nickname} onChange={e=>setForm(f=>({...f,nickname:e.target.value}))}/>
                     <Input label="ติดต่อ" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))}/>
@@ -136,7 +143,7 @@ export default function ClientsManagePage() {
                     <Input label="โซนเวลา" value={form.timezone} onChange={e=>setForm(f=>({...f,timezone:e.target.value}))}/>
                   </div>
                 ) : (
-                  <div className="mt-4 grid sm:grid-cols-3 gap-3 text-sm">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm break-words">
                     <div>
                       <div className="text-slate-500">ติดต่อ</div>
                       <div>{c.contact || "-"}</div>

@@ -61,7 +61,7 @@ export default function NatalPage() {
         const { data: mine } = await supabase
           .from('clients')
           .select('id, first_name, last_name, birth_date, birth_time, birth_place')
-          .eq('owner_id', user.id) // ปรับคอลัมน์ตามสคีมาที่ใช้อยู่ (เช่น created_by หรือ user_id)
+          .eq('user_id', user.id) // ปรับคอลัมน์ตามสคีมาที่ใช้อยู่ (เช่น created_by หรือ user_id)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -135,7 +135,7 @@ export default function NatalPage() {
 
   return (
     <PermissionGate requirePerms={['natal']}>
-      <div className="space-y-6">
+      <div className="max-w-3xl mx-auto px-4 space-y-6">
         <h1 className="text-xl font-semibold">พื้นดวง (Natal)</h1>
 
         {/* แถวเลือกผู้ดู/แสดงข้อมูลลูกดวง */}
@@ -147,7 +147,7 @@ export default function NatalPage() {
                   เลือกลูกดวง (สำหรับผู้ดูและระบบ)
                 </label>
                 <select
-                  className="w-full rounded-lg border-slate-300"
+                  className="w-full rounded-lg border-slate-300 h-11"
                   value={selectedClientId}
                   onChange={e => setSelectedClientId(e.target.value)}
                 >
@@ -182,7 +182,7 @@ export default function NatalPage() {
           <div>
             <label className="block text-sm text-slate-600">ชื่อ</label>
             <input
-              className="mt-1 w-full rounded-lg border-slate-300"
+              className="mt-1 w-full rounded-lg border-slate-300 h-11"
               value={firstName}
               onChange={e => setFirstName(e.target.value)}
               placeholder="ชื่อจริง"
@@ -192,7 +192,7 @@ export default function NatalPage() {
           <div>
             <label className="block text-sm text-slate-600">นามสกุล</label>
             <input
-              className="mt-1 w-full rounded-lg border-slate-300"
+              className="mt-1 w-full rounded-lg border-slate-300 h-11"
               value={lastName}
               onChange={e => setLastName(e.target.value)}
               placeholder="นามสกุล"
@@ -204,7 +204,7 @@ export default function NatalPage() {
               <label className="block text-sm text-slate-600">วัน/เดือน/ปี เกิด</label>
               <input
                 type="date"
-                className="mt-1 w-full rounded-lg border-slate-300"
+                className="mt-1 w-full rounded-lg border-slate-300 h-11"
                 value={birthDate}
                 onChange={e => setBirthDate(e.target.value)}
                 placeholder="YYYY-MM-DD"
@@ -214,7 +214,7 @@ export default function NatalPage() {
               <label className="block text-sm text-slate-600">เวลาเกิด</label>
               <input
                 type="time"
-                className="mt-1 w-full rounded-lg border-slate-300"
+                className="mt-1 w-full rounded-lg border-slate-300 h-11"
                 value={birthTime}
                 onChange={e => setBirthTime(e.target.value)}
                 placeholder="HH:mm"
@@ -223,7 +223,7 @@ export default function NatalPage() {
             <div>
               <label className="block text-sm text-slate-600">สถานที่เกิด</label>
               <input
-                className="mt-1 w-full rounded-lg border-slate-300"
+                className="mt-1 w-full rounded-lg border-slate-300 h-11"
                 value={birthPlace}
                 onChange={e => setBirthPlace(e.target.value)}
                 placeholder="อำเภอ/จังหวัด/ประเทศ"
@@ -238,13 +238,13 @@ export default function NatalPage() {
           <div className="flex gap-3">
             <button
               onClick={() => setAstroSys('thai')}
-              className={`rounded-lg px-4 py-2 border ${astroSys==='thai' ? 'bg-indigo-50 border-indigo-400' : 'border-slate-300'}`}
+              className={`w-full sm:w-auto rounded-lg px-4 py-2 border ${astroSys==='thai' ? 'bg-indigo-50 border-indigo-400' : 'border-slate-300'}`}
             >
               ไทย
             </button>
             <button
               onClick={() => setAstroSys('western')}
-              className={`rounded-lg px-4 py-2 border ${astroSys==='western' ? 'bg-indigo-50 border-indigo-400' : 'border-slate-300'}`}
+              className={`w-full sm:w-auto rounded-lg px-4 py-2 border ${astroSys==='western' ? 'bg-indigo-50 border-indigo-400' : 'border-slate-300'}`}
             >
               ตะวันตก
             </button>
@@ -253,7 +253,7 @@ export default function NatalPage() {
           <div className="mt-4">
             <button
               onClick={onStart}
-              className="rounded-lg bg-indigo-600 text-white px-4 py-2"
+              className="w-full sm:w-auto rounded-lg bg-indigo-600 text-white px-4 py-2"
             >
               เริ่มดูพื้นดวง
             </button>

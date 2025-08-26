@@ -47,7 +47,7 @@ export default function ClientsPage() {
     <>
       <Shell title="ลงทะเบียนลูกดวงใหม่" subtitle="กรอกเฉพาะที่จำเป็นก่อนก็ได้">
         <Section title="ข้อมูลพื้นฐาน">
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="ชื่อ-สกุล *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="เช่น ปฏิญญา หะยอม ใหม่" error={errors.name}/>
             <Input label="ชื่อเล่น" value={form.nickname} onChange={e=>setForm(f=>({...f,nickname:e.target.value}))}/>
             <Input label="ติดต่อ" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))} hint="เช่น Line/เบอร์/อีเมล อย่างใดอย่างหนึ่ง"/>
@@ -63,7 +63,7 @@ export default function ClientsPage() {
 
         <Section title="ลูกดวงล่าสุด">
           {!list.length ? <div className="text-slate-500 text-sm">ยังไม่มีข้อมูล</div> :
-            <div className="divide-y">
+            <div className="divide-y max-h-64 overflow-y-auto">
               {list.slice(0,6).map(c=>(
                 <div key={c.id} className="py-2 flex justify-between text-sm">
                   <div>{c.name} {c.nickname?`(${c.nickname})`:""}</div>
@@ -75,10 +75,14 @@ export default function ClientsPage() {
       </Shell>
 
       <StickyBar>
-        <Button onClick={save} disabled={!canSave}>บันทึก</Button>
-        <Button variant="ghost" onClick={clearForm}>ล้างฟอร์ม</Button>
-        <Button variant="ghost" onClick={loadDraft}>โหลดร่างล่าสุด</Button>
-        <a href="/reading" className="ml-auto"><Button variant="ghost">ไปหน้าเริ่มดูดวง</Button></a>
+        <div className="w-full flex flex-col sm:flex-row sm:items-center gap-2">
+          <Button onClick={save} disabled={!canSave} className="w-full sm:w-auto">บันทึก</Button>
+          <Button variant="ghost" onClick={clearForm} className="w-full sm:w-auto">ล้างฟอร์ม</Button>
+          <Button variant="ghost" onClick={loadDraft} className="w-full sm:w-auto">โหลดร่างล่าสุด</Button>
+          <a href="/reading" className="ml-0 sm:ml-auto w-full sm:w-auto">
+            <Button variant="ghost" className="w-full sm:w-auto">ไปหน้าเริ่มดูดวง</Button>
+          </a>
+        </div>
       </StickyBar>
       <Toast/>
     </>

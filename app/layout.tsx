@@ -24,19 +24,21 @@ export default function RootLayout({
       <body className={`${noto.className} min-h-screen bg-white text-slate-800`}>
         {/* Topbar */}
         <header className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-            <TopNav />
+          <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div className="w-full sm:w-auto">
+              <TopNav />
+            </div>
           </div>
         </header>
 
         {/* Main content */}
-        <main className="max-w-6xl mx-auto px-4 py-8">{children}</main>
+        <main className="max-w-6xl mx-auto px-4 py-4 sm:py-8">{children}</main>
 
         {/* Footer */}
         <footer className="border-t bg-indigo-50/60">
-          <div className="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-600 flex justify-between">
+          <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6 text-xs text-slate-600 flex justify-between">
             <div>© {new Date().getFullYear()} Destiny Decode Tarot</div>
-            <div>ข้อมูลเก็บในอุปกรณ์ของคุณ</div>
+            <div>ข้อมูลถูกจัดเก็บอย่างปลอดภัยด้วย Supabase</div>
           </div>
         </footer>
       </body>

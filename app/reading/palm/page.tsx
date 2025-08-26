@@ -80,7 +80,7 @@ export default function PalmPage() {
 
   return (
     <PermissionGate requirePerms={['palm']}>
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-3xl mx-auto px-4">
         <h1 className="text-xl font-semibold">ลายมือ (Palm)</h1>
 
         {role==='admin'
@@ -101,30 +101,40 @@ export default function PalmPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <div className="text-sm text-slate-600 mb-1">รูปมือซ้าย</div>
-              <input type="file" accept="image/*" onChange={(e)=>onUpload(e,'left')} />
+              <input
+                type="file"
+                accept="image/*"
+                className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
+                onChange={(e)=>onUpload(e,'left')}
+              />
               {images.find(i=>i.side==='left') && (
                 <img
                   src={images.find(i=>i.side==='left')!.url}
                   alt="left hand"
-                  className="mt-2 h-40 w-auto rounded-md border object-contain"
+                  className="mt-2 h-40 w-full max-w-xs rounded-md border object-contain"
                 />
               )}
             </div>
             <div>
               <div className="text-sm text-slate-600 mb-1">รูปมือขวา</div>
-              <input type="file" accept="image/*" onChange={(e)=>onUpload(e,'right')} />
+              <input
+                type="file"
+                accept="image/*"
+                className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
+                onChange={(e)=>onUpload(e,'right')}
+              />
               {images.find(i=>i.side==='right') && (
                 <img
                   src={images.find(i=>i.side==='right')!.url}
                   alt="right hand"
-                  className="mt-2 h-40 w-auto rounded-md border object-contain"
+                  className="mt-2 h-40 w-full max-w-xs rounded-md border object-contain"
                 />
               )}
             </div>
           </div>
 
           {!result ? (
-            <button className="rounded-lg bg-indigo-600 text-white px-4 py-2" onClick={startReading}>
+            <button className="rounded-lg bg-indigo-600 text-white px-4 py-2 w-full sm:w-auto" onClick={startReading}>
               เริ่มดูดวง
             </button>
           ) : (
@@ -137,13 +147,13 @@ export default function PalmPage() {
               <div className="space-y-2">
                 <label className="text-sm text-slate-600">คำถามเพิ่มเติม</label>
                 <input
-                  className="w-full rounded-lg border px-3 py-2"
+                  className="w-full h-11 rounded-lg border px-3"
                   value={question}
                   onChange={(e)=>setQuestion(e.target.value)}
                   placeholder="พิมพ์คำถาม"
                 />
                 <button
-                  className="rounded-lg bg-emerald-600 text-white px-4 py-2 disabled:opacity-60"
+                  className="rounded-lg bg-emerald-600 text-white px-4 py-2 disabled:opacity-60 w-full sm:w-auto"
                   onClick={askFollowup}
                   disabled={!hasBothHands}
                 >

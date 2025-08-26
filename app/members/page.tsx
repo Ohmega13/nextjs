@@ -6,5 +6,12 @@ export const revalidate = 0;
 import MembersClient from './MembersClient';
 
 export default function MembersPage() {
-  return <MembersClient />;
+  return (
+    <div className="container mx-auto p-4 sm:p-6">
+      <h1 className="text-xl font-semibold mb-4 text-center sm:text-left">
+        จัดการสมาชิก
+      </h1>
+      <MembersClient />
+    </div>
+  );
 }

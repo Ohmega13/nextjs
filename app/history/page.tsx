@@ -62,15 +62,15 @@ export default function HistoryPage() {
   }, [items, applied.mode, applied.from, applied.to]);
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl mx-auto px-4 space-y-6">
       <h1 className="text-xl font-semibold">ประวัติการดูดวงของฉัน</h1>
 
       {/* ฟิลเตอร์ */}
-      <div className="rounded-xl border p-4 grid gap-3 md:grid-cols-4">
+      <div className="rounded-xl border p-4 grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
         <div>
           <label className="block text-sm text-slate-600">ประเภทการดูดวง</label>
           <select
-            className="mt-1 w-full rounded-lg border-slate-300"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             value={filters.mode}
             onChange={(e) => setFilters((f) => ({ ...f, mode: e.target.value as Filters['mode'] }))}
           >
@@ -84,7 +84,7 @@ export default function HistoryPage() {
           <label className="block text-sm text-slate-600">ตั้งแต่วันที่</label>
           <input
             type="date"
-            className="mt-1 w-full rounded-lg border-slate-300"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             value={filters.from}
             onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))}
           />
@@ -93,7 +93,7 @@ export default function HistoryPage() {
           <label className="block text-sm text-slate-600">ถึงวันที่</label>
           <input
             type="date"
-            className="mt-1 w-full rounded-lg border-slate-300"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
             value={filters.to}
             onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))}
           />
@@ -101,7 +101,7 @@ export default function HistoryPage() {
         <div className="flex items-end">
           <button
             onClick={() => setFilters({ mode: '', from: '', to: '' })}
-            className="rounded-lg border px-4 py-2 w-full hover:bg-slate-50"
+            className="rounded-lg border border-slate-300 px-4 py-2 w-full hover:bg-slate-50"
           >
             ล้างตัวกรอง
           </button>
@@ -110,29 +110,29 @@ export default function HistoryPage() {
 
       {/* ตาราง */}
       <div className="rounded-xl border overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[600px] text-sm">
           <thead className="bg-slate-50">
             <tr>
-              <th className="px-3 py-2 text-left">วันที่</th>
-              <th className="px-3 py-2">ประเภท</th>
-              <th className="px-3 py-2 text-left">หัวข้อ</th>
-              <th className="px-3 py-2 text-left">บันทึก</th>
+              <th className="px-2 py-1 sm:px-3 sm:py-2 text-left">วันที่</th>
+              <th className="px-2 py-1 sm:px-3 sm:py-2 text-center">ประเภท</th>
+              <th className="px-2 py-1 sm:px-3 sm:py-2 text-left">หัวข้อ</th>
+              <th className="px-2 py-1 sm:px-3 sm:py-2 text-left">บันทึก</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((h) => (
               <tr key={h.id} className="border-t">
-                <td className="px-3 py-2">
+                <td className="px-2 py-1 sm:px-3 sm:py-2">
                   {new Date(h.date).toLocaleDateString('th-TH')}
                 </td>
-                <td className="px-3 py-2 text-center">{h.mode ?? '-'}</td>
-                <td className="px-3 py-2">{h.topic ?? '-'}</td>
-                <td className="px-3 py-2">{h.notes ?? '-'}</td>
+                <td className="px-2 py-1 sm:px-3 sm:py-2 text-center">{h.mode ?? '-'}</td>
+                <td className="px-2 py-1 sm:px-3 sm:py-2">{h.topic ?? '-'}</td>
+                <td className="px-2 py-1 sm:px-3 sm:py-2">{h.notes ?? '-'}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
+                <td className="px-2 py-6 sm:px-3 sm:py-6 text-center text-slate-500" colSpan={4}>
                   ไม่พบประวัติที่ตรงกับตัวกรอง
                 </td>
               </tr>
