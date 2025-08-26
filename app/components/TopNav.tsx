@@ -124,11 +124,9 @@ export default function TopNav() {
           </span>
         </Link>
 
-        {/* ตัวคั่นดันของไปชิดขวา */}
-        <div className="flex-1" />
 
         {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ */}
-        <div className="relative flex items-center gap-3">
+        <div className="ml-auto relative flex items-center gap-3">
           {loading ? (
             <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
