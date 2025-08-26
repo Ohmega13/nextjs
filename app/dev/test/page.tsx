@@ -52,7 +52,7 @@ export default function DevTestPage() {
       return;
     }
     const user = await getUser();
-    const data = await uploadPalmImage(user.id, file, { side: 'left' });
+    const data = await uploadPalmImage(user.id, file);
     setOut({ action: 'uploadPalmImage', data });
   }
 
