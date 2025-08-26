@@ -124,8 +124,11 @@ export default function TopNav() {
           </span>
         </Link>
 
+        {/* ตัวคั่นดันของไปชิดขวา */}
+        <div className="flex-1" />
+
         {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ */}
-        <div className="relative flex items-center gap-3 justify-end shrink-0 ml-auto">
+        <div className="flex items-center gap-3">
           {loading ? (
             <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
@@ -143,43 +146,15 @@ export default function TopNav() {
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50 active:scale-[.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 {/* Hamburger icon */}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="h-6 w-6"
-                  aria-hidden="true"
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6" aria-hidden="true">
                   <path d="M3.75 6.75h16.5a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0 0 1.5Zm16.5 5.25H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Zm0 6H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Z" />
                 </svg>
-                <span className="sr-only">เมนู</span>
               </button>
-              <div className="hidden items-center gap-1 text-sm">
-                <Link href="/" className="px-3 py-2 rounded-xl hover:bg-indigo-50">หน้าแรก</Link>
-                <span className="text-slate-300 px-1">|</span>
-                <Link href="/reading" className="px-3 py-2 rounded-xl hover:bg-indigo-50">เริ่มดูดวง</Link>
-                <span className="text-slate-300 px-1">|</span>
-                <Link href="/history" className="px-3 py-2 rounded-xl hover:bg-indigo-50">ประวัติการดูดวง</Link>
-                <span className="text-slate-300 px-1">|</span>
-                <Link href="/profile" className="px-3 py-2 rounded-xl hover:bg-indigo-50">Profile</Link>
-                <span className="text-slate-300 px-1">|</span>
-                <Link href="/backup" className="px-3 py-2 rounded-xl hover:bg-indigo-50">สำรอง/กู้คืนข้อมูล</Link>
-                {role === 'admin' && (
-                  <>
-                    <span className="text-slate-300 px-1">|</span>
-                    <Link href="/admin/members" className="px-3 py-2 rounded-xl hover:bg-indigo-50">สมาชิก (แอดมิน)</Link>
-                    <span className="text-slate-300 px-1">|</span>
-                    <Link href="/clients/register" className="px-3 py-2 rounded-xl hover:bg-indigo-50">ลงทะเบียนลูกดวง</Link>
-                  </>
-                )}
-                <span className="text-slate-300 px-1">|</span>
-                <button onClick={signOut} className="px-3 py-2 rounded-xl hover:bg-rose-50 text-rose-600">Logout</button>
-              </div>
-
               {menuOpen && (
                 <div ref={menuRef} className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1">
+                  {/* menu links */}
                   <Link href="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">หน้าแรก</Link>
-                  <Link href="/start" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
+                  <Link href="/reading" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
                   <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>
                   <Link href="/profile" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">Profile</Link>
                   <Link href="/backup" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สำรอง/กู้คืนข้อมูล</Link>
@@ -197,12 +172,8 @@ export default function TopNav() {
             </>
           ) : (
             <>
-              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">
-                เข้าสู่ระบบ
-              </Link>
-              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">
-                สมัครสมาชิก
-              </Link>
+              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
+              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
             </>
           )}
         </div>
