@@ -113,7 +113,7 @@ export default function TopNav() {
 
   return (
     <nav className="w-full sticky top-0 z-40 bg-white/70 backdrop-blur border-b">
-      <div className="mx-auto max-w-6xl px-3 sm:px-4 lg:px-6 h-14 flex items-center">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 h-14 flex items-center">
         {/* ซ้าย: โลโก้ + ชื่อแอป */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-bold">
