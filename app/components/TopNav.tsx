@@ -139,12 +139,22 @@ export default function TopNav() {
                 onClick={() => setMenuOpen(v => !v)}
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
-                className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-slate-50 active:scale-[.99] sm:hidden"
+                aria-label="เมนู"
+                className="sm:hidden inline-flex h-10 w-10 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <span className="i-ph-list text-base" aria-hidden />
-                เมนู
+                {/* Hamburger icon */}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <path d="M3.75 6.75h16.5a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0 0 1.5Zm16.5 5.25H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Zm0 6H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Z" />
+                </svg>
+                <span className="sr-only">เมนู</span>
               </button>
-              <div className="hidden sm:flex items-center gap-1 text-sm">
+              <div className="hidden md:flex items-center gap-1 text-sm">
                 <Link href="/" className="px-3 py-2 rounded-xl hover:bg-indigo-50">หน้าแรก</Link>
                 <span className="text-slate-300 px-1">|</span>
                 <Link href="/start" className="px-3 py-2 rounded-xl hover:bg-indigo-50">เริ่มดูดวง</Link>
