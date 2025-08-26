@@ -125,7 +125,7 @@ export default function TopNav() {
         </Link>
 
         {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ */}
-        <div className="flex items-center gap-3 ml-auto">
+        <div className="relative flex items-center gap-3 ml-auto">
           {loading ? (
             <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
@@ -140,7 +140,7 @@ export default function TopNav() {
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
                 aria-label="เมนู"
-                className="sm:hidden inline-flex h-10 w-10 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50 active:scale-[.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 {/* Hamburger icon */}
                 <svg
@@ -154,7 +154,7 @@ export default function TopNav() {
                 </svg>
                 <span className="sr-only">เมนู</span>
               </button>
-              <div className="hidden md:flex items-center gap-1 text-sm">
+              <div className="hidden items-center gap-1 text-sm">
                 <Link href="/" className="px-3 py-2 rounded-xl hover:bg-indigo-50">หน้าแรก</Link>
                 <span className="text-slate-300 px-1">|</span>
                 <Link href="/start" className="px-3 py-2 rounded-xl hover:bg-indigo-50">เริ่มดูดวง</Link>
@@ -177,7 +177,7 @@ export default function TopNav() {
               </div>
 
               {menuOpen && (
-                <div ref={menuRef} className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1 sm:hidden">
+                <div ref={menuRef} className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1">
                   <Link href="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">หน้าแรก</Link>
                   <Link href="/start" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
                   <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>
