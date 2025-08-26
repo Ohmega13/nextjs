@@ -1,18 +1,18 @@
 // app/lib/supabaseServer.ts
-import { createServerClient as createSSRClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { cookies as nextCookies } from 'next/headers';
 
 /**
- * In Next.js 15, `cookies()` may be typed as Promise on Edge runtime.
- * We cast to `any` and call it synchronously. Prefer Node runtime for
- * routes using this client.
+ * บาง runtime ของ Next 15 พิมพ์ `cookies()` เป็น Promise
+ * เราห่อไว้ด้วย helper แล้ว cast ให้เรียก sync ได้
  */
 function getCookieStore(): any {
-  return (nextCookies as unknown as () => any)();
+  const store = (nextCookies as unknown as () => any)();
+  return store;
 }
 
 export function createSupabaseServerClient() {
-  return createSSRClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -20,18 +20,19 @@ export function createSupabaseServerClient() {
         get(name: string) {
           return getCookieStore().get(name)?.value;
         },
-        set(name: string, value: string, _options: CookieOptions) {
+        // ไม่ต้องพิมพ์ CookieOptions — เราไม่ได้ใช้
+        set(name: string, value: string, _options?: any) {
           try {
             getCookieStore().set(name, value);
           } catch {
-            // ignore on immutable cookie store (Edge/static)
+            // no-op (กรณี cookie store เป็น immutable)
           }
         },
-        remove(name: string, _options: CookieOptions) {
+        remove(name: string, _options?: any) {
           try {
             getCookieStore().delete(name);
           } catch {
-            // ignore on immutable cookie store (Edge/static)
+            // no-op
           }
         },
       },
