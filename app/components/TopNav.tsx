@@ -121,7 +121,7 @@ export default function TopNav() {
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-bold">
             DD
           </span>
-          <span className="hidden sm:inline text-slate-800 font-semibold">
+          <span className="hidden lg:inline text-slate-800 font-semibold">
             Destiny Decode <span className="text-indigo-600">Tarot</span>
           </span>
         </Link>
@@ -156,7 +156,7 @@ export default function TopNav() {
             {menuOpen && (
               <div
                 ref={menuRef}
-                className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1"
+                className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1 z-50"
                 role="menu"
                 aria-labelledby="topnav-menu"
               >
