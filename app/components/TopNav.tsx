@@ -113,25 +113,25 @@ export default function TopNav() {
 
   return (
     <nav className="w-full sticky top-0 z-40 bg-white/70 backdrop-blur border-b">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-3 pt-[env(safe-area-inset-top)]">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-3 pt-[env(safe-area-inset-top)]">
         {/* ซ้าย: โลโก้ + ชื่อแอป */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-bold">
             DD
           </span>
-          <span className="text-slate-800 font-semibold">
+          <span className="hidden lg:inline text-slate-800 font-semibold">
             Destiny Decode <span className="text-indigo-600">Tarot</span>
           </span>
         </Link>
 
         {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ */}
-        <div className="relative flex items-center gap-2">
+        <div className="relative flex items-center gap-2 shrink-0">
           {loading ? (
             <span className="px-2 text-slate-400 text-sm">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
             <>
               {/* โชว์บนมือถือด้วย + truncate กันล้น */}
-              <span className="text-slate-600 text-xs sm:text-sm max-w-[45vw] sm:max-w-none truncate">
+              <span className="text-slate-600 text-xs sm:text-sm max-w-[55vw] sm:max-w-none truncate">
                 สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
               </span>
 
