@@ -112,10 +112,11 @@ export default function TopNav() {
   };
 
   return (
-    <nav className="w-full sticky top-0 z-40 bg-white/70 backdrop-blur border-b">
-      {/* เปลี่ยนเป็น justify-between เพื่อดันฝั่งขวา */}
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-        {/* ซ้าย: โลโก้ + ชื่อแอป */}
+  <nav className="w-full sticky top-0 z-40 bg-white/70 backdrop-blur border-b">
+    {/* แถวเต็มหน้าจอ + เผื่อรอยบาก iOS */}
+    <div className="w-full h-14 flex items-center px-4 sm:px-6 lg:px-8 pt-[env(safe-area-inset-top)]">
+      {/* ฝั่งซ้าย: จัดชิดกับคอนเทนต์หลัก (max-w) */}
+      <div className="max-w-7xl w-full mx-auto">
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-bold">
             DD
@@ -124,65 +125,68 @@ export default function TopNav() {
             Destiny Decode <span className="text-indigo-600">Tarot</span>
           </span>
         </Link>
-
-        {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ (ลบ ml-auto ออก) */}
-        <div className="relative flex items-center gap-3">
-          {loading ? (
-            <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
-          ) : userEmail ? (
-            <>
-              <span className="text-slate-600 hidden sm:inline">
-                สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
-              </span>
-              <button
-                id="topnav-menu"
-                ref={menuBtnRef}
-                onClick={() => setMenuOpen(v => !v)}
-                aria-expanded={menuOpen}
-                aria-haspopup="menu"
-                aria-label="เมนู"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50 active:scale-[.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                {/* Hamburger icon */}
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6" aria-hidden="true">
-                  <path d="M3.75 6.75h16.5a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0 0 1.5Zm16.5 5.25H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Zm0 6H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Z" />
-                </svg>
-              </button>
-              {menuOpen && (
-                <div
-                  ref={menuRef}
-                  className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1"
-                >
-                  <Link href="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">หน้าแรก</Link>
-                  <Link href="/reading" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
-                  <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>
-                  <Link href="/profile" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">Profile</Link>
-                  <Link href="/backup" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สำรอง/กู้คืนข้อมูล</Link>
-                  {role === 'admin' && (
-                    <>
-                      <div className="my-1 h-px bg-slate-100" />
-                      <Link href="/admin/members" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สมาชิก (แอดมิน)</Link>
-                      <Link href="/clients/register" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ลงทะเบียนลูกดวง</Link>
-                    </>
-                  )}
-                  <div className="my-1 h-px bg-slate-100" />
-                  <button
-                    onClick={signOut}
-                    className="w-full text-left flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
-                  >
-                    Logout
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
-              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
-            </>
-          )}
-        </div>
       </div>
-    </nav>
-  );
+
+      {/* ฝั่งขวา: ลอยชิดขอบจอจริง (ไม่ถูกจำกัดด้วย max-w) */}
+      <div className="ml-auto relative flex items-center gap-3">
+        {loading ? (
+          <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
+        ) : userEmail ? (
+          <>
+            {/* โชว์บนมือถือด้วย + ตัดคำถ้ายาว */}
+            <span className="text-slate-600 max-w-[45vw] truncate">
+              สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
+            </span>
+
+            <button
+              id="topnav-menu"
+              ref={menuBtnRef}
+              onClick={() => setMenuOpen(v => !v)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-label="เมนู"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50 active:scale-[.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              {/* Hamburger icon */}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6" aria-hidden="true">
+                <path d="M3.75 6.75h16.5a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0 0 1.5Zm16.5 5.25H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Zm0 6H3.75a.75.75 0 0 0 0 1.5h16.5a.75.75 0 0 0 0-1.5Z" />
+              </svg>
+            </button>
+
+            {menuOpen && (
+              <div
+                ref={menuRef}
+                className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1"
+                role="menu"
+                aria-labelledby="topnav-menu"
+              >
+                <Link href="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">หน้าแรก</Link>
+                <Link href="/reading" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
+                <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>
+                <Link href="/profile" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">Profile</Link>
+                <Link href="/backup" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สำรอง/กู้คืนข้อมูล</Link>
+                {role === 'admin' && (
+                  <>
+                    <div className="my-1 h-px bg-slate-100" />
+                    <Link href="/admin/members" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สมาชิก (แอดมิน)</Link>
+                    <Link href="/clients/register" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ลงทะเบียนลูกดวง</Link>
+                  </>
+                )}
+                <div className="my-1 h-px bg-slate-100" />
+                <button onClick={signOut} className="w-full text-left flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50">
+                  Logout
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
+            <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
+          </>
+        )}
+      </div>
+    </div>
+  </nav>
+);
 }
