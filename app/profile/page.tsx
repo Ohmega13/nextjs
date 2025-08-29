@@ -1,269 +1,455 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabaseClient';
 
-type ProfileRow = {
+type PalmSide = 'left' | 'right';
+
+type PalmImageRow = {
+  id: string;
   user_id: string;
-  email: string | null;
-  role: 'admin' | 'member' | null;
-  display_name: string | null;
-  permissions?: Record<string, boolean> | null;
+  side: PalmSide;
+  path: string;     // เส้นทางไฟล์ใน storage เช่น palm/{user_id}/left_123.jpg
+  created_at: string;
+};
+
+type ProfileDetails = {
+  user_id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  dob?: string | null;          // 'YYYY-MM-DD'
+  birth_time?: string | null;   // 'HH:MM'
+  birth_place?: string | null;
+  phone?: string | null;
 };
 
 export default function ProfilePage() {
-  const router = useRouter();
-
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [changingPass, setChangingPass] = useState(false);
 
+  // auth
   const [userId, setUserId] = useState<string | null>(null);
-  const [email, setEmail] = useState<string>('');
-  const [role, setRole] = useState<'admin' | 'member' | ''>('');
+  const [email, setEmail] = useState<string | null>(null);
+
+  // profiles.display_name
   const [displayName, setDisplayName] = useState<string>('');
+  const [savingDisplay, setSavingDisplay] = useState(false);
 
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  // profile_details (ถ้ามีตาราง)
+  const [details, setDetails] = useState<ProfileDetails | null>(null);
+  const [savingDetails, setSavingDetails] = useState(false);
+  const hasDetailsTable = useMemo(() => true, []); // เราจะลอง upsert ถ้า error จะแจ้งเตือนให้สร้างตาราง
 
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // palm images
+  const [palm, setPalm] = useState<Record<PalmSide, PalmImageRow | null>>({
+    left: null,
+    right: null,
+  });
+  const [viewingSide, setViewingSide] = useState<PalmSide | null>(null);
+  const [uploading, setUploading] = useState<Record<PalmSide, boolean>>({ left: false, right: false });
+  const [deleting, setDeleting] = useState<Record<PalmSide, boolean>>({ left: false, right: false });
 
+  // โหลดข้อมูลเบื้องต้น
   useEffect(() => {
-    let ignore = false;
-
-    async function seed() {
-      setLoading(true);
-      setErr(null);
-      setMsg(null);
-
-      // ต้องมี session ก่อน
-      const { data: { user }, error } = await supabase.auth.getUser();
-      if (error || !user) {
-        router.replace('/login?returnTo=' + encodeURIComponent('/profile'));
-        return;
-      }
-      if (ignore) return;
-
-      setUserId(user.id);
-      setEmail(user.email ?? '');
-
-      // โหลดจากตาราง profiles
-      const { data: prof, error: profErr } = await supabase
-        .from('profiles')
-        .select('user_id, email, role, display_name, permissions')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (profErr) {
-        setErr(profErr.message);
-        setLoading(false);
-        return;
-      }
-
-      // ถ้าไม่มีแถว profile ให้สร้าง default (กันหน้าใหม่ ๆ)
-      if (!prof) {
-        const defaultRow: Omit<ProfileRow, 'permissions'> = {
-          user_id: user.id,
-          email: user.email ?? null,
-          role: 'member',
-          display_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email || null,
-        };
-
-        const { error: insErr } = await supabase
-          .from('profiles')
-          .insert(defaultRow);
-
-        if (insErr) {
-          setErr(insErr.message);
+    (async () => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error || !user) {
           setLoading(false);
           return;
         }
+        setUserId(user.id);
+        setEmail(user.email ?? null);
 
-        setRole('member');
-        setDisplayName(defaultRow.display_name ?? '');
-      } else {
-        setRole((prof.role as 'admin' | 'member') ?? 'member');
-        setDisplayName(prof.display_name ?? '');
+        // profiles
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        setDisplayName((prof?.display_name as string) ?? '');
+
+        // profile_details (ถ้ามี)
+        const { data: det, error: detErr } = await supabase
+          .from('profile_details')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!detErr && det) {
+          setDetails(det as ProfileDetails);
+        } else {
+          setDetails({
+            user_id: user.id,
+            first_name: null,
+            last_name: null,
+            dob: null,
+            birth_time: null,
+            birth_place: null,
+            phone: null,
+          });
+        }
+
+        // palm images (ล่าสุดของแต่ละฝั่ง)
+        const { data: palms } = await supabase
+          .from('palm_images')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        const latest: Record<PalmSide, PalmImageRow | null> = { left: null, right: null };
+        (palms ?? []).forEach((row: any) => {
+          const s = row.side as PalmSide;
+          if (!latest[s]) latest[s] = row as PalmImageRow;
+        });
+        setPalm(latest);
+      } finally {
+        setLoading(false);
       }
+    })();
+  }, []);
 
-      setLoading(false);
-    }
-
-    seed();
-    return () => { ignore = true; };
-  }, [router]);
-
-  async function onSaveProfile(e: React.FormEvent) {
-    e.preventDefault();
+  async function saveDisplayName() {
     if (!userId) return;
-
-    setSaving(true);
-    setErr(null);
-    setMsg(null);
-
+    setSavingDisplay(true);
     try {
-      // อัปเดตตาราง profiles
-      const { error: upErr } = await supabase
+      const { error } = await supabase
         .from('profiles')
-        .update({
-          display_name: displayName || null,
-          // role ไม่ให้แก้จากหน้า user ทั่วไป (admin เท่านั้น) — เราเลยไม่อัปเดต role ที่นี่
-        })
-        .eq('user_id', userId);
-
-      if (upErr) throw upErr;
-
-      // อัปเดต user metadata ให้สอดคล้อง (optional but nice)
-      const { error: metaErr } = await supabase.auth.updateUser({
-        data: {
-          full_name: displayName || null,
-          name: displayName || null,
-        },
-      });
-      if (metaErr) throw metaErr;
-
-      setMsg('บันทึกโปรไฟล์เรียบร้อย ✨');
+        .upsert({ user_id: userId, display_name: displayName }, { onConflict: 'user_id' });
+      if (error) throw error;
+      alert('บันทึกชื่อที่แสดงเรียบร้อยแล้ว');
     } catch (e: any) {
-      setErr(e.message || 'บันทึกล้มเหลว');
+      alert(`บันทึกชื่อที่แสดงไม่สำเร็จ: ${e?.message ?? e}`);
     } finally {
-      setSaving(false);
+      setSavingDisplay(false);
     }
   }
 
-  async function onChangePassword(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setMsg(null);
-
-    if (newPassword.length < 6) {
-      setErr('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setErr('รหัสผ่านยืนยันไม่ตรงกัน');
-      return;
-    }
-
-    setChangingPass(true);
+  async function saveDetails() {
+    if (!userId || !details) return;
+    setSavingDetails(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      const payload = { ...details, user_id: userId };
+      const { error } = await supabase
+        .from('profile_details')
+        .upsert(payload, { onConflict: 'user_id' });
       if (error) throw error;
-
-      setMsg('เปลี่ยนรหัสผ่านสำเร็จ ✔');
-      setNewPassword('');
-      setConfirmPassword('');
+      alert('บันทึกข้อมูลบัญชีเรียบร้อยแล้ว');
     } catch (e: any) {
-      setErr(e.message || 'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+      alert(
+        'ยังไม่มีตาราง profile_details ในฐานข้อมูล\n' +
+        'ให้รัน SQL ที่ผมแนบให้ด้านล่างก่อน แล้วค่อยลองกดบันทึกอีกครั้ง.'
+      );
     } finally {
-      setChangingPass(false);
+      setSavingDetails(false);
+    }
+  }
+
+  // signed URL สำหรับดูรูป
+  async function getSignedUrl(row: PalmImageRow | null) {
+    if (!row) return null;
+    const { data } = await supabase.storage.from('palm').createSignedUrl(row.path, 60 * 10); // 10 นาที
+    return data?.signedUrl ?? null;
+  }
+
+  async function onUpload(side: PalmSide, file: File | null) {
+    if (!userId || !file) return;
+    setUploading(s => ({ ...s, [side]: true }));
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `${userId}/${side}_${Date.now()}.${ext}`;
+      // อัปโหลดไฟล์
+      const { error: upErr } = await supabase.storage.from('palm').upload(path, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type || 'image/jpeg',
+      });
+      if (upErr) throw upErr;
+
+      // จดเมตาลง palm_images
+      const { data: ins, error: insErr } = await supabase
+        .from('palm_images')
+        .insert({ user_id: userId, side, path })
+        .select()
+        .single();
+
+      if (insErr) throw insErr;
+      setPalm(prev => ({ ...prev, [side]: ins as PalmImageRow }));
+    } catch (e: any) {
+      alert(`อัปโหลดไม่สำเร็จ: ${e?.message ?? e}`);
+    } finally {
+      setUploading(s => ({ ...s, [side]: false }));
+    }
+  }
+
+  async function onDelete(side: PalmSide) {
+    if (!userId) return;
+    const row = palm[side];
+    if (!row) return;
+    if (!confirm('ลบรูปฝั่งนี้?')) return;
+
+    setDeleting(s => ({ ...s, [side]: true }));
+    try {
+      // ลบไฟล์ใน storage
+      await supabase.storage.from('palm').remove([row.path]);
+      // ลบเรคคอร์ดเมตา
+      await supabase.from('palm_images').delete().eq('id', row.id);
+      setPalm(prev => ({ ...prev, [side]: null }));
+    } catch (e: any) {
+      alert(`ลบไม่สำเร็จ: ${e?.message ?? e}`);
+    } finally {
+      setDeleting(s => ({ ...s, [side]: false }));
+    }
+  }
+
+  async function onChangePassword() {
+    const newPass = prompt('กรอกรหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)');
+    if (!newPass) return;
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPass });
+      if (error) throw error;
+      alert('เปลี่ยนรหัสผ่านเรียบร้อย');
+    } catch (e: any) {
+      alert(`เปลี่ยนรหัสผ่านไม่สำเร็จ: ${e?.message ?? e}`);
     }
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6">
-      <h1 className="text-xl font-semibold mb-4">Profile</h1>
+    <div className="mx-auto w-full max-w-5xl p-4 sm:p-6 space-y-6">
+      <h1 className="text-xl font-semibold">โปรไฟล์</h1>
 
       {loading ? (
-        <div className="rounded-xl border p-4 animate-pulse text-slate-400">
-          กำลังโหลดโปรไฟล์…
-        </div>
+        <div>กำลังโหลดข้อมูล…</div>
+      ) : !userId ? (
+        <div className="text-rose-600">กรุณาเข้าสู่ระบบก่อน</div>
       ) : (
         <>
-          {(err || msg) && (
-            <div className={`mb-4 rounded-xl border p-3 text-sm ${err ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
-              {err || msg}
-            </div>
-          )}
-
           {/* ข้อมูลบัญชี */}
-          <div className="rounded-xl border p-4 mb-6">
-            <div className="text-sm text-slate-500 mb-3">ข้อมูลบัญชี</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <section className="rounded-xl border p-4 space-y-3">
+            <h2 className="font-medium">ข้อมูลบัญชี</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm text-slate-500 mb-1">อีเมล</label>
+                <label className="text-sm text-slate-600">อีเมล</label>
+                <input className="mt-1 w-full rounded-lg border-slate-300" value={email ?? ''} disabled />
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">ชื่อที่แสดง</label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    className="w-full rounded-lg border-slate-300"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="เช่น โอห์ม"
+                  />
+                  <button
+                    onClick={saveDisplayName}
+                    disabled={savingDisplay}
+                    className="shrink-0 rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-60"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* รายละเอียดส่วนตัว */}
+          <section className="rounded-xl border p-4 space-y-3">
+            <h2 className="font-medium">รายละเอียดส่วนตัว</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-slate-600">ชื่อ</label>
                 <input
-                  className="w-full rounded-lg border bg-slate-50 px-3 py-2"
-                  value={email}
-                  disabled
+                  className="mt-1 w-full rounded-lg border-slate-300"
+                  value={details?.first_name ?? ''}
+                  onChange={(e) => setDetails(d => ({ ...(d as ProfileDetails), first_name: e.target.value }))}
                 />
               </div>
               <div>
-                <label className="block text-sm text-slate-500 mb-1">สิทธิ์ใช้งาน</label>
+                <label className="text-sm text-slate-600">นามสกุล</label>
                 <input
-                  className="w-full rounded-lg border bg-slate-50 px-3 py-2"
-                  value={role || ''}
-                  disabled
+                  className="mt-1 w-full rounded-lg border-slate-300"
+                  value={details?.last_name ?? ''}
+                  onChange={(e) => setDetails(d => ({ ...(d as ProfileDetails), last_name: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-600">วัน/เดือน/ปี เกิด</label>
+                <input
+                  type="date"
+                  className="mt-1 w-full rounded-lg border-slate-300"
+                  value={details?.dob ?? ''}
+                  onChange={(e) => setDetails(d => ({ ...(d as ProfileDetails), dob: e.target.value || null }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">เวลาเกิด</label>
+                <input
+                  type="time"
+                  className="mt-1 w-full rounded-lg border-slate-300"
+                  value={details?.birth_time ?? ''}
+                  onChange={(e) => setDetails(d => ({ ...(d as ProfileDetails), birth_time: e.target.value || null }))}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-slate-600">สถานที่เกิด</label>
+                <input
+                  className="mt-1 w-full rounded-lg border-slate-300"
+                  value={details?.birth_place ?? ''}
+                  onChange={(e) => setDetails(d => ({ ...(d as ProfileDetails), birth_place: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">เบอร์โทรศัพท์</label>
+                <input
+                  className="mt-1 w-full rounded-lg border-slate-300"
+                  value={details?.phone ?? ''}
+                  onChange={(e) => setDetails(d => ({ ...(d as ProfileDetails), phone: e.target.value }))}
                 />
               </div>
             </div>
-          </div>
 
-          {/* แก้ไขโปรไฟล์ */}
-          <form onSubmit={onSaveProfile} className="rounded-xl border p-4 mb-6">
-            <div className="text-sm text-slate-500 mb-3">แก้ไขโปรไฟล์</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-sm text-slate-500 mb-1">ชื่อที่แสดง</label>
-                <input
-                  className="w-full rounded-lg border px-3 py-2"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="เช่น โอห์ม"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
+            <div className="pt-2">
               <button
-                type="submit"
-                disabled={saving}
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50 disabled:opacity-50"
+                onClick={saveDetails}
+                disabled={savingDetails}
+                className="rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-60"
               >
-                {saving ? 'กำลังบันทึก…' : 'บันทึก'}
+                บันทึกรายละเอียดส่วนตัว
               </button>
+              {!hasDetailsTable && (
+                <p className="text-xs text-amber-600 mt-2">
+                  * ต้องสร้างตาราง profile_details ก่อน (ดู SQL ในคู่มือ)
+                </p>
+              )}
             </div>
-          </form>
+          </section>
+
+          {/* รูปลายมือ */}
+          <section className="rounded-xl border p-4 space-y-3">
+            <h2 className="font-medium">รูปลายมือ</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {(['left', 'right'] as PalmSide[]).map((side) => {
+                const row = palm[side];
+                return (
+                  <div key={side} className="rounded-lg border p-3">
+                    <div className="font-medium mb-2">{side === 'left' ? 'มือซ้าย' : 'มือขวา'}</div>
+
+                    <div className="flex items-center gap-3">
+                      {row ? (
+                        <Thumb row={row} side={side} onView={() => setViewingSide(side)} />
+                      ) : (
+                        <div className="w-24 h-24 rounded bg-slate-100 flex items-center justify-center text-slate-400 text-sm">ไม่มีรูป</div>
+                      )}
+
+                      <div className="ml-auto flex gap-2">
+                        <label className="rounded-lg border px-3 py-2 cursor-pointer">
+                          {uploading[side] ? 'กำลังอัปโหลด…' : 'อัปโหลด/แทนที่'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => onUpload(side, e.target.files?.[0] ?? null)}
+                            disabled={uploading[side]}
+                          />
+                        </label>
+                        {row && (
+                          <>
+                            <button
+                              onClick={() => setViewingSide(side)}
+                              className="rounded-lg border px-3 py-2"
+                            >
+                              ดูรูป
+                            </button>
+                            <button
+                              onClick={() => onDelete(side)}
+                              disabled={deleting[side]}
+                              className="rounded-lg border px-3 py-2 text-rose-600 disabled:opacity-60"
+                            >
+                              ลบ
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal ดูรูป */}
+            {viewingSide && (
+              <PalmModal
+                row={palm[viewingSide]}
+                onClose={() => setViewingSide(null)}
+                getSignedUrl={getSignedUrl}
+              />
+            )}
+          </section>
 
           {/* เปลี่ยนรหัสผ่าน */}
-          <form onSubmit={onChangePassword} className="rounded-xl border p-4">
-            <div className="text-sm text-slate-500 mb-3">เปลี่ยนรหัสผ่าน</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-slate-500 mb-1">รหัสผ่านใหม่</label>
-                <input
-                  type="password"
-                  className="w-full rounded-lg border px-3 py-2"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="อย่างน้อย 6 ตัวอักษร"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-500 mb-1">ยืนยันรหัสผ่านใหม่</label>
-                <input
-                  type="password"
-                  className="w-full rounded-lg border px-3 py-2"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="พิมพ์ซ้ำอีกครั้ง"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <button
-                type="submit"
-                disabled={changingPass}
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {changingPass ? 'กำลังเปลี่ยน…' : 'เปลี่ยนรหัสผ่าน'}
-              </button>
-            </div>
-          </form>
+          <section className="rounded-xl border p-4 space-y-3">
+            <h2 className="font-medium">เปลี่ยนรหัสผ่าน</h2>
+            <button onClick={onChangePassword} className="rounded-lg border px-4 py-2">
+              เปลี่ยนรหัสผ่าน
+            </button>
+          </section>
         </>
       )}
+    </div>
+  );
+}
+
+function Thumb({ row, side, onView }: { row: PalmImageRow; side: PalmSide; onView: () => void }) {
+  // แสดงภาพพรีวิวผ่าน public URL ชั่วคราว (ถ้าบัคเก็ตเป็น public ใช้ getPublicUrl ได้)
+  const publicUrl = supabase.storage.from('palm').getPublicUrl(row.path).data.publicUrl;
+  return (
+    <button onClick={onView} className="rounded overflow-hidden border">
+      {/* ใช้ next/image เพื่อประสิทธิภาพ */}
+      <Image src={publicUrl} alt={`${side} hand`} width={96} height={96} className="object-cover" />
+    </button>
+  );
+}
+
+function PalmModal({
+  row,
+  onClose,
+  getSignedUrl,
+}: {
+  row: PalmImageRow | null;
+  onClose: () => void;
+  getSignedUrl: (row: PalmImageRow | null) => Promise<string | null>;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const u = await getSignedUrl(row);
+      setUrl(u);
+    })();
+  }, [row]); // eslint-disable-line
+
+  if (!row) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 p-4" onClick={onClose}>
+      <div className="mx-auto max-w-3xl bg-white rounded-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-3 border-b">
+          <div className="font-medium">ดูรูปมือ</div>
+          <button onClick={onClose} className="rounded-lg border px-3 py-1.5">ปิด</button>
+        </div>
+        <div className="p-3 flex items-center justify-center">
+          {url ? (
+            // ใช้ img ธรรมดาเพื่อให้ขยายเต็มพื้นที่ได้ง่าย
+            // (ถ้าอยากใช้ next/image ก็ได้ แต่ต้องกำหนดขนาด)
+            <img src={url} alt="palm" className="max-h-[70vh] w-auto" />
+          ) : (
+            <div className="text-slate-500">กำลังโหลดรูป…</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
