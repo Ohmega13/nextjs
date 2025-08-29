@@ -113,7 +113,8 @@ export default function TopNav() {
 
   return (
     <nav className="w-full sticky top-0 z-40 bg-white/70 backdrop-blur border-b">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 h-14 flex items-center">
+      {/* เปลี่ยนเป็น justify-between เพื่อดันฝั่งขวา */}
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
         {/* ซ้าย: โลโก้ + ชื่อแอป */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-bold">
@@ -124,9 +125,8 @@ export default function TopNav() {
           </span>
         </Link>
 
-
-        {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ */}
-        <div className="ml-auto relative flex items-center gap-3">
+        {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ (ลบ ml-auto ออก) */}
+        <div className="relative flex items-center gap-3">
           {loading ? (
             <span className="px-3 py-2 text-slate-400">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
@@ -149,8 +149,10 @@ export default function TopNav() {
                 </svg>
               </button>
               {menuOpen && (
-                <div ref={menuRef} className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1">
-                  {/* menu links */}
+                <div
+                  ref={menuRef}
+                  className="absolute right-0 top-12 w-64 rounded-xl border bg-white shadow-lg p-1"
+                >
                   <Link href="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">หน้าแรก</Link>
                   <Link href="/reading" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
                   <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>
@@ -164,7 +166,12 @@ export default function TopNav() {
                     </>
                   )}
                   <div className="my-1 h-px bg-slate-100" />
-                  <button onClick={signOut} className="w-full text-left flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50">Logout</button>
+                  <button
+                    onClick={signOut}
+                    className="w-full text-left flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
+                  >
+                    Logout
+                  </button>
                 </div>
               )}
             </>
