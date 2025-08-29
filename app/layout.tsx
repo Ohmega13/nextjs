@@ -24,10 +24,8 @@ export default function RootLayout({
       <body className={`${noto.className} min-h-screen bg-white text-slate-800`}>
         {/* Topbar */}
         <header className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
-            <div className="w-full sm:w-auto">
-              <TopNav />
-            </div>
+          <div className="max-w-7xl mx-auto px-4 py-3">
+            <TopNav />
           </div>
         </header>
 
