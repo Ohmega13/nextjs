@@ -166,7 +166,7 @@ export default function TopNav() {
                     <>
                       <div className="my-1 h-px bg-slate-100" />
                       <Link href="/admin/members" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สมาชิก (แอดมิน)</Link>
-                      <Link href="/clients/register" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ลงทะเบียนลูกดวง</Link>
+                      <Link href="/clients" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ลงทะเบียนลูกดวง</Link>
                     </>
                   )}
                   <div className="my-1 h-px bg-slate-100" />
