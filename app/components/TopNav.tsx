@@ -125,7 +125,7 @@ export default function TopNav() {
         </Link>
 
         {/* ขวา: สวัสดี + เมนู/ปุ่มต่างๆ */}
-        <div className="relative flex items-center gap-2 shrink-0 justify-end flex-1">
+        <div className="ml-auto relative flex items-center gap-2">
           {loading ? (
             <span className="px-2 text-slate-400 text-sm">กำลังตรวจสอบ…</span>
           ) : userEmail ? (
