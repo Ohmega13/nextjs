@@ -27,7 +27,7 @@ export async function loadClients(userId: string, role: string): Promise<ClientR
     const { data, error } = await supabase
       .from('clients')
       .select('id, full_name, dob_date, dob_time, birth_place, email, phone')
-      .eq('user_id', userId)
+      .eq('owner_user_id', userId)
       .order('created_at', { ascending: false });
     if (error) {
       console.error('loadClients error:', error);
