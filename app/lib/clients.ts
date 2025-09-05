@@ -62,3 +62,29 @@ export async function loadClients(userId: string, role: string): Promise<ClientR
     return [];
   }
 }
+
+/**
+ * Load the current user's own profile_details as a single ClientRow.
+ * Used for member flow on the reading page (no client selector).
+ */
+export async function loadSelfProfile(userId: string): Promise<ClientRow | null> {
+  try {
+    if (!userId) return null;
+
+    const { data, error } = await (supabase
+      .from('profile_details')
+      .select(baseSelect) as any)
+      .eq('user_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('loadSelfProfile error:', error);
+      return null;
+    }
+    return (data as ClientRow) ?? null;
+  } catch (e) {
+    console.error('loadSelfProfile exception:', e);
+    return null;
+  }
+}
