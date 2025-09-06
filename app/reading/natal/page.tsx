@@ -8,7 +8,8 @@ import PermissionGate from '@/components/PermissionGate';
 type Role = 'admin' | 'member' | null;
 
 type Client = {
-  id: string;
+  id?: string; // profile_details may not have id; keep optional for future use
+  user_id: string;
   first_name?: string | null;
   last_name?: string | null;
   birth_date?: string | null;   // YYYY-MM-DD
@@ -55,15 +56,13 @@ export default function NatalPage() {
       const r = (prof?.role as Role) ?? null;
       setRole(r);
 
-      // MEMBER: ลองดึงข้อมูลส่วนตัวมาเติม (ดึงจากตาราง clients ของเจ้าตัว ถ้ามี)
+      // MEMBER: ลองดึงข้อมูลส่วนตัวมาเติม (ดึงจากตาราง profile_details ของเจ้าตัว ถ้ามี)
       if (r === 'member') {
-        // ตัวอย่าง: หากมีตาราง clients ที่ผูกกับ user_id ของตน ให้ลองดึงรายการล่าสุด/เรคคอร์ดหลัก
+        // ตัวอย่าง: หากมีตาราง profile_details ที่ผูกกับ user_id ของตน ให้ลองดึงรายการล่าสุด/เรคคอร์ดหลัก
         const { data: mine } = await supabase
-          .from('clients')
-          .select('id, first_name, last_name, birth_date, birth_time, birth_place')
-          .eq('user_id', user.id) // ปรับคอลัมน์ตามสคีมาที่ใช้อยู่ (เช่น created_by หรือ user_id)
-          .order('created_at', { ascending: false })
-          .limit(1)
+          .from('profile_details')
+          .select('user_id, first_name, last_name, birth_date, birth_time, birth_place')
+          .eq('user_id', user.id)
           .maybeSingle();
 
         if (mine) {
@@ -87,11 +86,19 @@ export default function NatalPage() {
       // ADMIN: โหลดรายชื่อลูกดวงให้เลือก
       if (r === 'admin') {
         const { data: list } = await supabase
-          .from('clients')
-          .select('id, first_name, last_name, birth_date, birth_time, birth_place')
+          .from('profile_details')
+          .select('user_id, first_name, last_name, birth_date, birth_time, birth_place')
           .order('first_name', { ascending: true });
 
-        setClients(list || []);
+        setClients((list || []).map((p: any) => ({
+          id: p.user_id,
+          user_id: p.user_id,
+          first_name: p.first_name,
+          last_name: p.last_name,
+          birth_date: p.birth_date,
+          birth_time: p.birth_time,
+          birth_place: p.birth_place,
+        })));
       }
     })();
 
@@ -105,7 +112,7 @@ export default function NatalPage() {
   // เมื่อ admin เปลี่ยนลูกดวง ให้เติมลงฟอร์ม
   useEffect(() => {
     if (role !== 'admin') return;
-    const c = clients.find(x => x.id === selectedClientId);
+    const c = clients.find(x => x.user_id === selectedClientId);
     if (!c) {
       setFirstName(''); setLastName(''); setBirthDate(''); setBirthTime(''); setBirthPlace('');
       return;
@@ -153,8 +160,8 @@ export default function NatalPage() {
                 >
                   <option value="">— ไม่ระบุ —</option>
                   {clients.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {[c.first_name, c.last_name].filter(Boolean).join(' ') || c.id}
+                    <option key={c.user_id} value={c.user_id}>
+                      {[c.first_name, c.last_name].filter(Boolean).join(' ') || c.user_id}
                     </option>
                   ))}
                 </select>

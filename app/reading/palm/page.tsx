@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabaseClient';
 import PermissionGate from '@/components/PermissionGate';
 import ClientPicker from '@/components/ClientPicker';
@@ -17,6 +18,9 @@ export default function PalmPage() {
   const [result, setResult] = useState<string>('');
   const [question, setQuestion] = useState('');
   const storageKey = useMemo(()=> 'ddt_palm_history', []);
+
+  const leftImg = useMemo(() => images.find(i => i.side === 'left') || null, [images]);
+  const rightImg = useMemo(() => images.find(i => i.side === 'right') || null, [images]);
 
   useEffect(()=> {
     (async ()=>{
@@ -107,12 +111,16 @@ export default function PalmPage() {
                 className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
                 onChange={(e)=>onUpload(e,'left')}
               />
-              {images.find(i=>i.side==='left') && (
-                <img
-                  src={images.find(i=>i.side==='left')!.url}
-                  alt="left hand"
-                  className="mt-2 h-40 w-full max-w-xs rounded-md border object-contain"
-                />
+              {leftImg && (
+                <div className="mt-2 h-40 w-full max-w-xs relative rounded-md border overflow-hidden">
+                  <Image
+                    src={leftImg.url}
+                    alt="left hand"
+                    fill
+                    sizes="(max-width: 640px) 100vw, 256px"
+                    style={{ objectFit: 'contain' }}
+                  />
+                </div>
               )}
             </div>
             <div>
@@ -123,18 +131,22 @@ export default function PalmPage() {
                 className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
                 onChange={(e)=>onUpload(e,'right')}
               />
-              {images.find(i=>i.side==='right') && (
-                <img
-                  src={images.find(i=>i.side==='right')!.url}
-                  alt="right hand"
-                  className="mt-2 h-40 w-full max-w-xs rounded-md border object-contain"
-                />
+              {rightImg && (
+                <div className="mt-2 h-40 w-full max-w-xs relative rounded-md border overflow-hidden">
+                  <Image
+                    src={rightImg.url}
+                    alt="right hand"
+                    fill
+                    sizes="(max-width: 640px) 100vw, 256px"
+                    style={{ objectFit: 'contain' }}
+                  />
+                </div>
               )}
             </div>
           </div>
 
           {!result ? (
-            <button className="rounded-lg bg-indigo-600 text-white px-4 py-2 w-full sm:w-auto" onClick={startReading}>
+            <button type="button" className="rounded-lg bg-indigo-600 text-white px-4 py-2 w-full sm:w-auto" onClick={startReading}>
               เริ่มดูดวง
             </button>
           ) : (
@@ -153,6 +165,7 @@ export default function PalmPage() {
                   placeholder="พิมพ์คำถาม"
                 />
                 <button
+                  type="button"
                   className="rounded-lg bg-emerald-600 text-white px-4 py-2 disabled:opacity-60 w-full sm:w-auto"
                   onClick={askFollowup}
                   disabled={!hasBothHands}

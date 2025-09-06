@@ -38,7 +38,6 @@ export default function ProfilePage() {
   // profile_details (ถ้ามีตาราง)
   const [details, setDetails] = useState<ProfileDetails | null>(null);
   const [savingDetails, setSavingDetails] = useState(false);
-  const hasDetailsTable = useMemo(() => true, []); // เราจะลอง upsert ถ้า error จะแจ้งเตือนให้สร้างตาราง
 
   // palm images
   const [palm, setPalm] = useState<Record<PalmSide, PalmImageRow | null>>({
@@ -320,11 +319,6 @@ export default function ProfilePage() {
               >
                 บันทึกรายละเอียดส่วนตัว
               </button>
-              {!hasDetailsTable && (
-                <p className="text-xs text-amber-600 mt-2">
-                  * ต้องสร้างตาราง profile_details ก่อน (ดู SQL ในคู่มือ)
-                </p>
-              )}
             </div>
           </section>
 
@@ -340,7 +334,7 @@ export default function ProfilePage() {
 
                     <div className="flex items-center gap-3">
                       {row ? (
-                        <Thumb row={row} side={side} onView={() => setViewingSide(side)} />
+                        <Thumb row={row} side={side} onView={() => setViewingSide(side)} getSignedUrl={getSignedUrl} />
                       ) : (
                         <div className="w-24 h-24 rounded bg-slate-100 flex items-center justify-center text-slate-400 text-sm">ไม่มีรูป</div>
                       )}
@@ -403,13 +397,34 @@ export default function ProfilePage() {
   );
 }
 
-function Thumb({ row, side, onView }: { row: PalmImageRow; side: PalmSide; onView: () => void }) {
-  // แสดงภาพพรีวิวผ่าน public URL ชั่วคราว (ถ้าบัคเก็ตเป็น public ใช้ getPublicUrl ได้)
-  const publicUrl = supabase.storage.from('palm').getPublicUrl(row.path).data.publicUrl;
+function Thumb({
+  row,
+  side,
+  onView,
+  getSignedUrl,
+}: {
+  row: PalmImageRow;
+  side: PalmSide;
+  onView: () => void;
+  getSignedUrl: (row: PalmImageRow | null) => Promise<string | null>;
+}) {
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const u = await getSignedUrl(row);
+      setThumbUrl(u);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row?.id, row?.path]);
+
   return (
-    <button onClick={onView} className="rounded overflow-hidden border">
-      {/* ใช้ next/image เพื่อประสิทธิภาพ */}
-      <Image src={publicUrl} alt={`${side} hand`} width={96} height={96} className="object-cover" />
+    <button onClick={onView} className="rounded overflow-hidden border w-[96px] h-[96px] flex items-center justify-center bg-slate-100">
+      {thumbUrl ? (
+        <Image src={thumbUrl} alt={`${side} hand`} width={96} height={96} className="object-cover" />
+      ) : (
+        <span className="text-xs text-slate-500">กำลังโหลด…</span>
+      )}
     </button>
   );
 }
@@ -430,7 +445,7 @@ function PalmModal({
       const u = await getSignedUrl(row);
       setUrl(u);
     })();
-  }, [row]); // eslint-disable-line
+  }, [row?.id, row?.path]);
 
   if (!row) return null;
   return (

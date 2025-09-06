@@ -1,26 +1,31 @@
 // app/lib/clients.ts
 export type ClientRow = {
   id: string;
-  full_name: string;
-  dob_date: string | null;
-  dob_time: string | null;
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  dob: string | null;
+  birth_time: string | null;
   birth_place: string | null;
   contact: string | null;
+  nickname: string | null;
+  full_name: string;
 };
 
 import { supabase } from '@/lib/supabaseClient';
 
 // NOTE: use raw column names in ORDER BY to avoid alias issues
 const baseSelect = `
-  user_id as id,
-  (coalesce(first_name,'') || case
-     when last_name is null or last_name = '' then ''
-     else ' ' || last_name
-  end) as full_name,
-  dob as dob_date,
-  birth_time as dob_time,
+  id,
+  user_id,
+  first_name,
+  last_name,
+  dob,
+  birth_time,
   birth_place,
-  contact
+  contact,
+  nickname,
+  (first_name || ' ' || last_name) as full_name
 `;
 
 /**
@@ -45,7 +50,7 @@ export async function loadClients(userId: string, role: string): Promise<ClientR
       query = query.eq('user_id', userId);
     }
 
-    // Prefer recent birthdays first, stable secondary sort by full_name
+    // Prefer recent birthdays first, stable secondary sort by first_name
     const { data, error } = await query
       .order('dob', { ascending: false, nullsFirst: false })
       .order('first_name', { ascending: true })

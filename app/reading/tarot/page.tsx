@@ -69,36 +69,32 @@ export default function TarotReadingPage() {
     setResult(text);
   }
 
-  function saveToHistory() {
-    type HistoryItem = {
-      id: string;
-      date: string;
-      mode: 'tarot';
-      readingType: ReadingType;
-      topic?: string;
-      options?: string[];
-      cards: CardPick[];
-      result: string;
-      clientId?: string|null;
-      clientName?: string|null;
-    };
-    const item: HistoryItem = {
-      id: crypto.randomUUID(),
-      date: new Date().toISOString(),
-      mode: 'tarot',
+  async function saveToHistory() {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      alert('บันทึกไม่สำเร็จ');
+      return;
+    }
+    const userId = userData.user.id;
+    const payload = {
       readingType,
-      topic,
       options: readingType === 'weigh' ? options : undefined,
       cards,
       result,
-      clientId: role === 'admin' ? clientId : null,
-      clientName: role === 'admin' ? clientName : null,
     };
-    const raw = localStorage.getItem('ddt_history');
-    const arr = raw ? (JSON.parse(raw) as HistoryItem[]) : [];
-    arr.unshift(item);
-    localStorage.setItem('ddt_history', JSON.stringify(arr));
-    alert('บันทึกประวัติเรียบร้อย');
+    const insertData = {
+      user_id: userId,
+      client_id: role === 'admin' ? clientId : null,
+      mode: 'tarot',
+      topic,
+      payload,
+    };
+    const { error } = await supabase.from('readings').insert(insertData);
+    if (error) {
+      alert('บันทึกไม่สำเร็จ');
+    } else {
+      alert('บันทึกผลลัพธ์สำเร็จ');
+    }
   }
 
   return (
