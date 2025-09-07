@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 // NOTE: use raw column names in ORDER BY to avoid alias issues
 const baseSelect = `
-  id,
+  user_id as id,
   user_id,
   first_name,
   last_name,
@@ -25,7 +25,14 @@ const baseSelect = `
   birth_place,
   contact,
   nickname,
-  (first_name || ' ' || last_name) as full_name
+  (
+    COALESCE(first_name, '') ||
+    CASE
+      WHEN COALESCE(first_name, '') = '' OR COALESCE(last_name, '') = '' THEN ''
+      ELSE ' '
+    END ||
+    COALESCE(last_name, '')
+  ) as full_name
 `;
 
 /**

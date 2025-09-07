@@ -56,7 +56,7 @@ export default function ClientsManagePage() {
         query = query.eq('user_id', user.id);
       }
 
-      const { data: rows, error } = await query.returns();
+      const { data: rows, error } = await query;
       if (error) throw error;
       setClients(rows || []);
 

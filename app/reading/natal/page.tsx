@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import PermissionGate from '@/components/PermissionGate';
+import PermissionGate from '@/app/components/PermissionGate';
 
 type Role = 'admin' | 'member' | null;
 
