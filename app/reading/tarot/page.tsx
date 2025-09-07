@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import PermissionGate from '@/components/PermissionGate';
+import PermissionGate from '../../components/PermissionGate';
 import ClientPicker from '@/components/ClientPicker';
 import ClientInfoCard from '@/components/ClientInfoCard';
 
