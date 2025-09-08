@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabaseClient';
-import PermissionGate from '../../components/PermissionGate'
+import PermissionGate from '../../components/PermissionGate';
 import ClientPicker from '@/components/ClientPicker';
 import ClientInfoCard from '@/components/ClientInfoCard';
+import { saveReading } from '@/lib/readings';
+import { uploadPalmImage } from '@/lib/palm';
 
 type ImgItem = { id: string; url: string; side: 'left' | 'right' };
 
@@ -13,6 +15,7 @@ export default function PalmPage() {
   const [role, setRole] = useState<string|null>(null);
   const [clientId, setClientId] = useState<string|null>(null);
   const [clientName, setClientName] = useState<string|null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [images, setImages] = useState<ImgItem[]>([]);
   const [result, setResult] = useState<string>('');
@@ -26,54 +29,68 @@ export default function PalmPage() {
     (async ()=>{
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setUserId(user.id);
       const { data } = await supabase.from('profiles').select('role').eq('user_id',user.id).maybeSingle();
       setRole((data as any)?.role ?? null);
     })();
   }, []);
 
-  // โหลดรูปเก่าจาก localStorage (mock)
-  useEffect(()=>{
-    try{
-      const raw = localStorage.getItem(storageKey);
-      const arr = raw ? JSON.parse(raw) as any[] : [];
-      if (arr[0]?.images) setImages(arr[0].images);
-      if (arr[0]?.result) setResult(arr[0].result);
-    }catch{}
-  },[storageKey]);
-
-  function onUpload(e: React.ChangeEvent<HTMLInputElement>, side: 'left' | 'right') {
+  async function onUpload(e: React.ChangeEvent<HTMLInputElement>, side: 'left' | 'right') {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      const others = images.filter(i=>i.side!==side);
-      const item: ImgItem = { id: crypto.randomUUID(), url, side };
-      setImages([...others, item]);
-    };
-    reader.readAsDataURL(file);
+    if (!userId) {
+      alert('ยังไม่ได้ล็อกอิน');
+      return;
+    }
+    // เป้าหมายสำหรับบันทึก: ถ้าเป็นแอดมินและเลือก client ให้ใช้ clientId, ไม่งั้นใช้ userId ของตัวเอง
+    const targetId = role === 'admin' && clientId ? clientId : userId;
+
+    try {
+      // อัปโหลดจริงไป Supabase (ใช้ helper ที่มีอยู่)
+      await uploadPalmImage(targetId, file);
+
+      // แสดงตัวอย่างในหน้าจอทันที (ไม่รอโหลดกลับ)
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result);
+        const others = images.filter(i => i.side !== side);
+        const item: ImgItem = { id: crypto.randomUUID(), url, side };
+        setImages([...others, item]);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('uploadPalmImage error:', err);
+      alert('อัปโหลดรูปไม่สำเร็จ');
+    }
   }
 
-  function startReading() {
+  async function startReading() {
     if (images.length < 2) {
       alert('กรุณาอัปโหลดรูปมือทั้ง 2 ข้างก่อน');
       return;
     }
+    if (!userId) {
+      alert('ยังไม่ได้ล็อกอิน');
+      return;
+    }
+
     const text = 'ผลอ่านลายมือ: เส้นชีพเด่น มีพลังใจและความอึด เส้นสมองมั่นคง ช่วงนี้เหมาะวางแผนงานระยะกลาง';
     setResult(text);
 
-    const item = {
-      id: crypto.randomUUID(),
-      date: new Date().toISOString(),
-      images,
-      result: text,
-      clientId: role==='admin' ? clientId : null,
-      clientName: role==='admin' ? clientName : null,
-    };
-    const raw = localStorage.getItem(storageKey);
-    const arr = raw ? JSON.parse(raw) as any[] : [];
-    arr.unshift(item);
-    localStorage.setItem(storageKey, JSON.stringify(arr));
+    // ผู้ถูกอ่าน: ถ้าแอดมินเลือก client ให้ใช้ clientId, ไม่งั้นใช้ userId ของตัวเอง
+    const targetId = role === 'admin' && clientId ? clientId : userId;
+
+    try {
+      await saveReading(targetId, 'palm', {
+        question,
+        result: text,
+        images: images.map(i => ({ side: i.side, id: i.id })),
+      });
+      // เก็บสถานะบนหน้าไว้เหมือนเดิม
+    } catch (err) {
+      console.error('saveReading(palm) error:', err);
+      alert('บันทึกประวัติไม่สำเร็จ');
+    }
   }
 
   function askFollowup(){

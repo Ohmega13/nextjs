@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import PermissionGate from '../../components/PermissionGate';
-import ClientPicker from '@/components/ClientPicker';
-import ClientInfoCard from '@/components/ClientInfoCard';
+import ClientPicker from '../../components/ClientPicker';
+import ClientInfoCard from '../../components/ClientInfoCard';
 
 type CardPick = { name: string; reversed: boolean };
 type ReadingType = '3cards' | 'weigh' | 'celtic';

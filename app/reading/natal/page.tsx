@@ -12,7 +12,7 @@ type Client = {
   user_id: string;
   first_name?: string | null;
   last_name?: string | null;
-  birth_date?: string | null;   // YYYY-MM-DD
+  dob?: string | null;   // YYYY-MM-DD
   birth_time?: string | null;   // HH:mm
   birth_place?: string | null;
 };
@@ -61,14 +61,14 @@ export default function NatalPage() {
         // ตัวอย่าง: หากมีตาราง profile_details ที่ผูกกับ user_id ของตน ให้ลองดึงรายการล่าสุด/เรคคอร์ดหลัก
         const { data: mine } = await supabase
           .from('profile_details')
-          .select('user_id, first_name, last_name, birth_date, birth_time, birth_place')
+          .select('user_id, first_name, last_name, dob, birth_time, birth_place')
           .eq('user_id', user.id)
           .maybeSingle();
 
         if (mine) {
           setFirstName(mine.first_name ?? '');
           setLastName(mine.last_name ?? '');
-          setBirthDate(mine.birth_date ?? '');
+          setBirthDate(mine.dob ?? '');
           setBirthTime(mine.birth_time ?? '');
           setBirthPlace(mine.birth_place ?? '');
         } else {
@@ -87,7 +87,7 @@ export default function NatalPage() {
       if (r === 'admin') {
         const { data: list } = await supabase
           .from('profile_details')
-          .select('user_id, first_name, last_name, birth_date, birth_time, birth_place')
+          .select('user_id, first_name, last_name, dob, birth_time, birth_place')
           .order('first_name', { ascending: true });
 
         setClients((list || []).map((p: any) => ({
@@ -95,7 +95,7 @@ export default function NatalPage() {
           user_id: p.user_id,
           first_name: p.first_name,
           last_name: p.last_name,
-          birth_date: p.birth_date,
+          dob: p.dob,
           birth_time: p.birth_time,
           birth_place: p.birth_place,
         })));
@@ -119,7 +119,7 @@ export default function NatalPage() {
     }
     setFirstName(c.first_name ?? '');
     setLastName(c.last_name ?? '');
-    setBirthDate(c.birth_date ?? '');
+    setBirthDate(c.dob ?? '');
     setBirthTime(c.birth_time ?? '');
     setBirthPlace(c.birth_place ?? '');
   }, [role, clients, selectedClientId]);
