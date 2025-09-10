@@ -1,9 +1,8 @@
-// app/reading/natal/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import PermissionGate from '../../components/PermissionGate'
+import PermissionGate from '../../components/PermissionGate';
 
 type Role = 'admin' | 'member' | null;
 
@@ -12,15 +11,9 @@ type Client = {
   user_id: string;
   first_name?: string | null;
   last_name?: string | null;
-  dob?: string | null;   // YYYY-MM-DD
-  birth_time?: string | null;   // HH:mm
+  dob?: string | null;         // YYYY-MM-DD
+  birth_time?: string | null;  // HH:mm
   birth_place?: string | null;
-};
-
-type ProfileRow = {
-  user_id: string;
-  role: Role;
-  display_name: string | null;
 };
 
 export default function NatalPage() {
@@ -38,75 +31,115 @@ export default function NatalPage() {
   const [birthPlace, setBirthPlace] = useState(''); // สถานที่เกิด (อำเภอ/จังหวัด/ประเทศ)
   const [astroSys, setAstroSys] = useState<'thai' | 'western'>('thai');
 
-  // โหลด role และตั้งค่าเริ่มต้นสำหรับ member
+  // UI state
+  const [loading, setLoading] = useState(true);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // โหลด role และตั้งค่าเริ่มต้นสำหรับ member/admin
   useEffect(() => {
     let ignore = false;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
 
-      // อ่าน role จาก profiles
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('user_id, role, display_name')
-        .eq('user_id', user.id)
-        .maybeSingle();
+    async function seed() {
+      setLoading(true);
+      setErrMsg(null);
+      try {
+        const { data: { user }, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+        if (!user) {
+          if (!ignore) setLoading(false);
+          return;
+        }
 
-      if (ignore) return;
-      const r = (prof?.role as Role) ?? null;
-      setRole(r);
-
-      // MEMBER: ลองดึงข้อมูลส่วนตัวมาเติม (ดึงจากตาราง profile_details ของเจ้าตัว ถ้ามี)
-      if (r === 'member') {
-        // ตัวอย่าง: หากมีตาราง profile_details ที่ผูกกับ user_id ของตน ให้ลองดึงรายการล่าสุด/เรคคอร์ดหลัก
-        const { data: mine } = await supabase
-          .from('profile_details')
-          .select('user_id, first_name, last_name, dob, birth_time, birth_place')
+        // อ่าน role จาก profiles
+        const { data: prof, error: profErr } = await supabase
+          .from('profiles')
+          .select('user_id, role, display_name')
           .eq('user_id', user.id)
           .maybeSingle();
 
-        if (mine) {
-          setFirstName(mine.first_name ?? '');
-          setLastName(mine.last_name ?? '');
-          setBirthDate(mine.dob ?? '');
-          setBirthTime(mine.birth_time ?? '');
-          setBirthPlace(mine.birth_place ?? '');
-        } else {
-          // fallback จาก user_metadata
-          const meta: any = user.user_metadata || {};
-          const display = meta.full_name || meta.name || '';
-          if (display) {
-            const [fn, ...rest] = String(display).split(' ');
-            setFirstName(fn || '');
-            setLastName(rest.join(' ') || '');
+        if (profErr) throw profErr;
+
+        const r: Role = (prof?.role as Role) ?? null;
+        if (!ignore) setRole(r);
+
+        if (r === 'member') {
+          // ดึงข้อมูลส่วนตัวจาก profile_details ของตัวเอง
+          const { data: mine, error: mineErr } = await supabase
+            .from('profile_details')
+            .select('user_id, first_name, last_name, dob, birth_time, birth_place')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (mineErr) throw mineErr;
+
+          if (!ignore) {
+            if (mine) {
+              setFirstName(mine.first_name ?? '');
+              setLastName(mine.last_name ?? '');
+              setBirthDate(mine.dob ?? '');
+              setBirthTime(mine.birth_time ?? '');
+              setBirthPlace(mine.birth_place ?? '');
+            } else {
+              // fallback จาก user_metadata
+              const meta: any = user.user_metadata || {};
+              const display = meta.full_name || meta.name || '';
+              if (display) {
+                const [fn, ...rest] = String(display).split(' ');
+                setFirstName(fn || '');
+                setLastName(rest.join(' ') || '');
+              }
+            }
           }
         }
+
+        if (r === 'admin') {
+          // โหลดรายชื่อลูกดวงทั้งหมดจาก profile_details
+          const { data: list, error: listErr } = await supabase
+            .from('profile_details')
+            .select('user_id, first_name, last_name, dob, birth_time, birth_place')
+            .order('first_name', { ascending: true });
+
+          if (listErr) throw listErr;
+
+          if (!ignore) {
+            const mapped = (list || []).map((p: any) => ({
+              id: p.user_id,
+              user_id: p.user_id,
+              first_name: p.first_name,
+              last_name: p.last_name,
+              dob: p.dob,
+              birth_time: p.birth_time,
+              birth_place: p.birth_place,
+            }));
+            setClients(mapped);
+
+            // เลือกค่าเริ่มต้นให้ dropdown ถ้ามีรายการและยังไม่เลือก
+            if (mapped.length > 0 && !selectedClientId) {
+              setSelectedClientId(mapped[0].user_id);
+            }
+          }
+        }
+      } catch (e: any) {
+        if (!ignore) setErrMsg(e?.message || 'โหลดข้อมูลไม่สำเร็จ');
+      } finally {
+        if (!ignore) setLoading(false);
       }
+    }
 
-      // ADMIN: โหลดรายชื่อลูกดวงให้เลือก
-      if (r === 'admin') {
-        const { data: list } = await supabase
-          .from('profile_details')
-          .select('user_id, first_name, last_name, dob, birth_time, birth_place')
-          .order('first_name', { ascending: true });
+    seed();
 
-        setClients((list || []).map((p: any) => ({
-          id: p.user_id,
-          user_id: p.user_id,
-          first_name: p.first_name,
-          last_name: p.last_name,
-          dob: p.dob,
-          birth_time: p.birth_time,
-          birth_place: p.birth_place,
-        })));
-      }
-    })();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      // ถ้ามีการเปลี่ยนสถานะ login ให้โหลดใหม่
+      seed();
+    });
 
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {});
     return () => {
       ignore = true;
-      sub.subscription.unsubscribe();
+      try {
+        sub?.subscription?.unsubscribe();
+      } catch {}
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // เมื่อ admin เปลี่ยนลูกดวง ให้เติมลงฟอร์ม
@@ -114,7 +147,11 @@ export default function NatalPage() {
     if (role !== 'admin') return;
     const c = clients.find(x => x.user_id === selectedClientId);
     if (!c) {
-      setFirstName(''); setLastName(''); setBirthDate(''); setBirthTime(''); setBirthPlace('');
+      setFirstName('');
+      setLastName('');
+      setBirthDate('');
+      setBirthTime('');
+      setBirthPlace('');
       return;
     }
     setFirstName(c.first_name ?? '');
@@ -131,7 +168,6 @@ export default function NatalPage() {
 
   function onStart() {
     // TODO: ต่อเข้าฟังก์ชันวิเคราะห์พื้นดวงตาม astroSys
-    // ส่งข้อมูล birthDate, birthTime, birthPlace, fullName ไปคำนวณ
     alert(
       `เริ่มดูพื้นดวงแบบ: ${astroSys === 'thai' ? 'ไทย' : 'ตะวันตก'}\n` +
       `ชื่อ: ${fullName}\n` +
@@ -145,6 +181,12 @@ export default function NatalPage() {
       <div className="max-w-3xl mx-auto px-4 space-y-6">
         <h1 className="text-xl font-semibold">พื้นดวง (Natal)</h1>
 
+        {errMsg && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2 text-sm">
+            {errMsg}
+          </div>
+        )}
+
         {/* แถวเลือกผู้ดู/แสดงข้อมูลลูกดวง */}
         <div className="grid gap-4 md:grid-cols-2">
           <div>
@@ -154,16 +196,22 @@ export default function NatalPage() {
                   เลือกลูกดวง (สำหรับผู้ดูและระบบ)
                 </label>
                 <select
-                  className="w-full rounded-lg border-slate-300 h-11"
+                  className="w-full rounded-lg border-slate-300 h-11 disabled:opacity-60"
                   value={selectedClientId}
                   onChange={e => setSelectedClientId(e.target.value)}
+                  disabled={loading || clients.length === 0}
                 >
-                  <option value="">— ไม่ระบุ —</option>
-                  {clients.map(c => (
-                    <option key={c.user_id} value={c.user_id}>
-                      {[c.first_name, c.last_name].filter(Boolean).join(' ') || c.user_id}
-                    </option>
-                  ))}
+                  {clients.length === 0 ? (
+                    <option value="">— ไม่มีข้อมูลลูกดวง —</option>
+                  ) : (
+                    <>
+                      {clients.map(c => (
+                        <option key={c.user_id} value={c.user_id}>
+                          {[c.first_name, c.last_name].filter(Boolean).join(' ') || c.user_id}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </>
             ) : (
@@ -177,7 +225,7 @@ export default function NatalPage() {
           <div className="rounded-xl border bg-slate-50 p-4">
             <div className="font-medium">ข้อมูลลูกดวง</div>
             <div className="text-sm text-slate-600 mt-1">
-              {fullName !== '—' ? fullName : 'ยังไม่มีข้อมูล'}
+              {fullName !== '—' ? fullName : (loading ? 'กำลังโหลด…' : 'ยังไม่มีข้อมูล')}
               {birthDate ? ` • เกิด ${birthDate}${birthTime ? ` ${birthTime}` : ''}` : ''}
               {birthPlace ? ` • ${birthPlace}` : ''}
             </div>
@@ -261,6 +309,7 @@ export default function NatalPage() {
             <button
               onClick={onStart}
               className="w-full sm:w-auto rounded-lg bg-indigo-600 text-white px-4 py-2"
+              disabled={loading}
             >
               เริ่มดูพื้นดวง
             </button>

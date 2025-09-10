@@ -14,7 +14,7 @@ export type ClientRow = {
 
 import { supabase } from '@/lib/supabaseClient';
 
-// NOTE: use raw column names in ORDER BY to avoid alias issues
+// Use raw column names in ORDER BY to avoid alias issues
 const baseSelect = `
   user_id as id,
   user_id,
@@ -34,6 +34,24 @@ const baseSelect = `
     COALESCE(last_name, '')
   ) as full_name
 `;
+
+/**
+ * Helper: get current authed user and role from `profiles`.
+ */
+export async function getUserAndRole() {
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user || null;
+  let role: string | null = null;
+  if (user) {
+    const { data: prof } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    role = (prof as any)?.role ?? null;
+  }
+  return { user, role };
+}
 
 /**
  * Load client choices from profile_details
@@ -72,6 +90,30 @@ export async function loadClients(userId: string, role: string): Promise<ClientR
   } catch (e) {
     console.error('loadClients exception:', e);
     return [];
+  }
+}
+
+/**
+ * Load a single client/profile_details row by user_id.
+ */
+export async function loadClientById(targetUserId: string): Promise<ClientRow | null> {
+  try {
+    if (!targetUserId) return null;
+    const { data, error } = await (supabase
+      .from('profile_details')
+      .select(baseSelect) as any)
+      .eq('user_id', targetUserId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('loadClientById error:', error);
+      return null;
+    }
+    return (data as ClientRow) ?? null;
+  } catch (e) {
+    console.error('loadClientById exception:', e);
+    return null;
   }
 }
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button, Input, Select, Section, Shell, StickyBar, useToast, uid } from "../components/ui";
 import { supabase } from "@/lib/supabaseClient";
 import { loadClients } from "@/lib/clients";
@@ -17,6 +17,7 @@ export default function ClientsPage() {
   });
   const [list, setList] = useState([]);
   const [role, setRole] = useState("member"); // 'admin' | 'member'
+  const [isPending, startTransition] = useTransition();
   const { setMsg, Toast } = useToast();
 
   // helper: get current user + role
@@ -104,30 +105,50 @@ export default function ClientsPage() {
 
   const save = async () => {
     if (!canSave) return setMsg("กรอกข้อมูลให้ครบก่อนจ้า");
-    try {
-      const { user, role } = await getUserAndRole();
-      const row = buildRow(user.id, role);
 
-      // บันทึกเข้า profile_details (RLS ควบคุมสิทธิ์)
-      const { data, error } = await supabase
-        .from("profile_details")
-        .insert([row])
-        .select()
-        .single();
-      if (error) throw error;
-
-      setMsg("บันทึกแล้ว");
-      clearForm();
-
-      // refresh รายชื่อลูกดวง
+    startTransition(async () => {
       try {
-        const next = await loadClients(user.id, role);
-        setList(next || []);
-      } catch {}
-    } catch (e) {
-      console.error("save client error", e);
-      setMsg("บันทึกลูกดวงไม่สำเร็จ");
-    }
+        const { user, role } = await getUserAndRole();
+        const row = buildRow(user.id, role);
+
+        // ถ้าเป็นสมาชิก: อัปเดตโปรไฟล์ของตัวเอง (กันซ้ำ) ด้วย upsert ตาม user_id
+        // ถ้าเป็นแอดมิน: เพิ่มลูกดวงใหม่ให้ตัวเองเป็น owner
+        let q;
+        if (role === "member") {
+          q = supabase
+            .from("profile_details")
+            .upsert([row], { onConflict: "user_id" })
+            .select()
+            .single();
+        } else {
+          q = supabase
+            .from("profile_details")
+            .insert([row])
+            .select()
+            .single();
+        }
+        const { data, error } = await q;
+        if (error) throw error;
+
+        setMsg(role === "member" ? "บันทึก/อัปเดตโปรไฟล์แล้ว" : "บันทึกลูกดวงแล้ว");
+        clearForm();
+
+        // refresh รายชื่อลูกดวงให้ทันที
+        try {
+          const next = await loadClients(user.id, role);
+          setList(next || []);
+        } catch (e) {
+          console.warn("refresh clients failed:", e);
+        }
+      } catch (e) {
+        console.error("save client error", e);
+        // แสดงรายละเอียด error ถ้ามี
+        const msg =
+          (e && (e.message || e.error_description || e.hint)) ||
+          "บันทึกไม่สำเร็จ";
+        setMsg(msg);
+      }
+    });
   };
 
   return (
@@ -168,8 +189,8 @@ export default function ClientsPage() {
             <div className="text-slate-500 text-sm">ยังไม่มีข้อมูล</div>
           ) : (
             <div className="divide-y max-h-64 overflow-y-auto">
-              {list.slice(0, 6).map((c) => (
-                <div key={c.id || uid()} className="py-2 flex justify-between text-sm">
+              {list.slice(0, 6).map((c, i) => (
+                <div key={c.id ?? `row-${i}`} className="py-2 flex justify-between text-sm">
                   <div>
                     {c.name} {c.nickname ? `(${c.nickname})` : ""}
                   </div>
@@ -185,8 +206,8 @@ export default function ClientsPage() {
 
       <StickyBar>
         <div className="w-full flex flex-col sm:flex-row sm:items-center gap-2">
-          <Button onClick={save} disabled={!canSave} className="w-full sm:w-auto">
-            บันทึก
+          <Button onClick={save} disabled={!canSave || isPending} className="w-full sm:w-auto">
+            {isPending ? "กำลังบันทึก..." : "บันทึก"}
           </Button>
           <Button variant="ghost" onClick={clearForm} className="w-full sm:w-auto">
             ล้างฟอร์ม

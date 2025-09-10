@@ -112,10 +112,11 @@ export default function PalmPage() {
                   setClientId(id);
                   setClientName(c?.name || c?.email || null);
                 }}
+                tableName="profile_details"
               />
               <ClientInfoCard forUserId={clientId ?? undefined} />
             </div>
-          : <ClientInfoCard />
+          : <ClientInfoCard forUserId={userId ?? undefined} />
         }
 
         <div className="rounded-xl border p-4 space-y-4">
@@ -131,9 +132,10 @@ export default function PalmPage() {
               {leftImg && (
                 <div className="mt-2 h-40 w-full max-w-xs relative rounded-md border overflow-hidden">
                   <Image
-                    src={leftImg.url}
+                    src={leftImg!.url}
                     alt="left hand"
                     fill
+                    unoptimized
                     sizes="(max-width: 640px) 100vw, 256px"
                     style={{ objectFit: 'contain' }}
                   />
@@ -151,9 +153,10 @@ export default function PalmPage() {
               {rightImg && (
                 <div className="mt-2 h-40 w-full max-w-xs relative rounded-md border overflow-hidden">
                   <Image
-                    src={rightImg.url}
+                    src={rightImg!.url}
                     alt="right hand"
                     fill
+                    unoptimized
                     sizes="(max-width: 640px) 100vw, 256px"
                     style={{ objectFit: 'contain' }}
                   />
