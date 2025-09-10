@@ -9,6 +9,7 @@ export type ClientRow = {
   birth_place: string | null;
   contact: string | null;
   nickname: string | null;
+  email: string | null;
   full_name: string;
 };
 
@@ -24,6 +25,7 @@ const baseSelect = `
   birth_time,
   birth_place,
   phone as contact,
+  email,
   NULL::text as nickname,
   (
     COALESCE(first_name, '') ||
