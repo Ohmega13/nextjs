@@ -112,7 +112,6 @@ export default function PalmPage() {
                   setClientId(id);
                   setClientName(c?.name || c?.email || null);
                 }}
-                tableName="profile_details"
               />
               <ClientInfoCard forUserId={clientId ?? undefined} />
             </div>
