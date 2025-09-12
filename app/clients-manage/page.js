@@ -46,10 +46,10 @@ export default function ClientsManagePage() {
       const r = (prof?.role ?? null) === 'admin' ? 'admin' : 'member';
       setRole(r);
 
-      // fetch clients from profile_details
+      // fetch clients from profile_details (actual columns) and normalize later
       let query = supabase
         .from('profile_details')
-        .select('id,user_id,name,nickname,contact,dob,birth_time,birth_place,timezone,gender,created_at')
+        .select('user_id, first_name, last_name, dob, birth_time, birth_place, phone, created_at')
         .order('created_at', { ascending: false });
 
       if (r !== 'admin') {
@@ -58,10 +58,29 @@ export default function ClientsManagePage() {
 
       const { data: rows, error } = await query;
       if (error) throw error;
-      setClients(rows || []);
+
+      // normalize profile_details -> client card shape
+      const normalized = (rows || []).map(r => {
+        const first = r.first_name || '';
+        const last = r.last_name || '';
+        const full = `${first}${last ? ` ${last}` : ''}`.trim();
+        return {
+          id: r.user_id, // use user_id as the stable id
+          name: full || first || last || '(ไม่ระบุชื่อ)',
+          nickname: '', // not available in profile_details
+          contact: r.phone || '',
+          dob: r.dob || '',
+          birth_time: r.birth_time || '',
+          birth_place: r.birth_place || '',
+          timezone: '', // not stored in profile_details
+          gender: '',   // not stored in profile_details
+          created_at: r.created_at || null,
+        };
+      });
+      setClients(normalized);
 
       // fetch readings and build counts by client_id
-      const ids = (rows || []).map(x => x.id).filter(Boolean);
+      const ids = normalized.map(x => x.id).filter(Boolean);
       if (ids.length) {
         const { data: readRows, error: rErr } = await supabase
           .from('readings')
@@ -114,11 +133,24 @@ export default function ClientsManagePage() {
   async function saveEdit(){
     try{
       if(!editingId) return;
-      const payload = { ...form };
+      // Split name to first/last for profile_details
+      const n = (form.name || '').trim();
+      const [first, ...rest] = n.split(/\s+/);
+      const last = rest.join(' ') || null;
+
+      const payload = {
+        first_name: first || null,
+        last_name: last,
+        phone: form.contact || null,
+        dob: form.dob || null,
+        birth_time: form.birth_time || null,
+        birth_place: form.birth_place || null,
+      };
+
       const { error } = await supabase
         .from('profile_details')
         .update(payload)
-        .eq('id', editingId);
+        .eq('user_id', editingId);
       if (error) throw error;
       setMsg('บันทึกข้อมูลลูกดวงแล้ว');
       setEditingId(null);
@@ -137,7 +169,7 @@ export default function ClientsManagePage() {
         // ลบ readings ที่ผูก client นี้ก่อน (admin เท่านั้นตาม RLS)
         await supabase.from('readings').delete().eq('client_id', c.id);
       }
-      const { error } = await supabase.from('profile_details').delete().eq('id', c.id);
+      const { error } = await supabase.from('profile_details').delete().eq('user_id', c.id);
       if (error) throw error;
       setMsg('ลบข้อมูลเรียบร้อย');
       await seed();
