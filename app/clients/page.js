@@ -87,18 +87,19 @@ export default function ClientsPage() {
 
   // map form -> profile_details row
   function buildRow(userId, role) {
+    // split name into first_name and last_name
+    const nameParts = form.name.trim().split(" ");
+    const first_name = nameParts[0] || "";
+    const last_name = nameParts.slice(1).join(" ") || "";
+
     const row = {
-      name: form.name.trim(),
-      nickname: form.nickname || null,
-      contact: form.contact || null,
-      dob: form.birthDate || null, // date (YYYY-MM-DD)
-      tob: form.birthTime || null, // time (HH:mm)
-      birth_place: form.birthPlace || null,
-      timezone: form.timezone || null,
-      gender: form.gender || null,
-      // ownership
       user_id: role === "member" ? userId : null,
-      owner_user_id: role === "admin" ? userId : null,
+      first_name,
+      last_name,
+      dob: form.birthDate || null, // date (YYYY-MM-DD)
+      birth_time: form.birthTime || null, // time (HH:mm)
+      birth_place: form.birthPlace || null,
+      phone: form.contact || null,
     };
     return row;
   }

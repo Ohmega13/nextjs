@@ -12,28 +12,72 @@ import { uploadPalmImage } from '@/lib/palm';
 type ImgItem = { id: string; url: string; side: 'left' | 'right' };
 
 export default function PalmPage() {
-  const [role, setRole] = useState<string|null>(null);
-  const [clientId, setClientId] = useState<string|null>(null);
-  const [clientName, setClientName] = useState<string|null>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientName, setClientName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   const [images, setImages] = useState<ImgItem[]>([]);
   const [result, setResult] = useState<string>('');
   const [question, setQuestion] = useState('');
-  const storageKey = useMemo(()=> 'ddt_palm_history', []);
+  const storageKey = useMemo(() => 'ddt_palm_history', []);
 
   const leftImg = useMemo(() => images.find(i => i.side === 'left') || null, [images]);
   const rightImg = useMemo(() => images.find(i => i.side === 'right') || null, [images]);
 
-  useEffect(()=> {
-    (async ()=>{
+  useEffect(() => {
+    (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
-      const { data } = await supabase.from('profiles').select('role').eq('user_id',user.id).maybeSingle();
+
+      // ดึงข้อมูล role และข้อมูลผู้ใช้จาก profile_details แทน profiles
+      const { data } = await supabase
+        .from('profile_details')
+        .select('role, first_name, last_name, phone')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
       setRole((data as any)?.role ?? null);
+
+      // กำหนด clientName สำหรับ member ให้ชื่อของตัวเอง
+      if (data) {
+        const name =
+          data.first_name && data.last_name
+            ? `${data.first_name} ${data.last_name}`
+            : data.phone || null;
+        setClientName(name);
+      }
     })();
   }, []);
+
+  // เมื่อ admin เลือก client ให้ดึงชื่อจาก profile_details
+  useEffect(() => {
+    if (role === 'admin' && clientId) {
+      (async () => {
+        const { data } = await supabase
+          .from('profile_details')
+          .select('first_name, last_name, phone')
+          .eq('user_id', clientId)
+          .maybeSingle();
+
+        if (data) {
+          const name =
+            data.first_name && data.last_name
+              ? `${data.first_name} ${data.last_name}`
+              : data.phone || null;
+          setClientName(name);
+        } else {
+          setClientName(null);
+        }
+      })();
+    } else if (role !== 'admin') {
+      // ถ้าไม่ใช่ admin ให้ใช้ชื่อของตัวเอง
+      // clientName ถูกตั้งไว้ตอนโหลด user แล้ว
+    } else {
+      setClientName(null);
+    }
+  }, [clientId, role]);
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>, side: 'left' | 'right') {
     const file = e.target.files?.[0];
@@ -74,7 +118,8 @@ export default function PalmPage() {
       return;
     }
 
-    const text = 'ผลอ่านลายมือ: เส้นชีพเด่น มีพลังใจและความอึด เส้นสมองมั่นคง ช่วงนี้เหมาะวางแผนงานระยะกลาง';
+    const text =
+      'ผลอ่านลายมือ: เส้นชีพเด่น มีพลังใจและความอึด เส้นสมองมั่นคง ช่วงนี้เหมาะวางแผนงานระยะกลาง';
     setResult(text);
 
     // ผู้ถูกอ่าน: ถ้าแอดมินเลือก client ให้ใช้ clientId, ไม่งั้นใช้ userId ของตัวเอง
@@ -93,30 +138,31 @@ export default function PalmPage() {
     }
   }
 
-  function askFollowup(){
+  function askFollowup() {
     alert('วิเคราะห์คำถามอ้างอิงตามลายมือ (ตัวอย่าง)');
   }
 
-  const hasBothHands = images.some(i=>i.side==='left') && images.some(i=>i.side==='right');
+  const hasBothHands = images.some(i => i.side === 'left') && images.some(i => i.side === 'right');
 
   return (
     <PermissionGate requirePerms={['palm']}>
       <div className="space-y-6 max-w-3xl mx-auto px-4">
         <h1 className="text-xl font-semibold">ลายมือ (Palm)</h1>
 
-        {role==='admin'
-          ? <div className="grid gap-4 sm:grid-cols-2">
-              <ClientPicker
-                value={clientId}
-                onChange={(id, c)=>{
-                  setClientId(id);
-                  setClientName(c?.name || c?.email || null);
-                }}
-              />
-              <ClientInfoCard forUserId={clientId ?? undefined} />
-            </div>
-          : <ClientInfoCard forUserId={userId ?? undefined} />
-        }
+        {role === 'admin' ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ClientPicker
+              value={clientId}
+              onChange={(id, c) => {
+                setClientId(id);
+                // clientName จะถูกตั้งจาก useEffect ด้านบน
+              }}
+            />
+            <ClientInfoCard forUserId={clientId ?? undefined} />
+          </div>
+        ) : (
+          <ClientInfoCard forUserId={userId ?? undefined} />
+        )}
 
         <div className="rounded-xl border p-4 space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -126,7 +172,7 @@ export default function PalmPage() {
                 type="file"
                 accept="image/*"
                 className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
-                onChange={(e)=>onUpload(e,'left')}
+                onChange={e => onUpload(e, 'left')}
               />
               {leftImg && (
                 <div className="mt-2 h-40 w-full max-w-xs relative rounded-md border overflow-hidden">
@@ -147,7 +193,7 @@ export default function PalmPage() {
                 type="file"
                 accept="image/*"
                 className="block w-full text-sm file:mr-4 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
-                onChange={(e)=>onUpload(e,'right')}
+                onChange={e => onUpload(e, 'right')}
               />
               {rightImg && (
                 <div className="mt-2 h-40 w-full max-w-xs relative rounded-md border overflow-hidden">
@@ -165,7 +211,11 @@ export default function PalmPage() {
           </div>
 
           {!result ? (
-            <button type="button" className="rounded-lg bg-indigo-600 text-white px-4 py-2 w-full sm:w-auto" onClick={startReading}>
+            <button
+              type="button"
+              className="rounded-lg bg-indigo-600 text-white px-4 py-2 w-full sm:w-auto"
+              onClick={startReading}
+            >
               เริ่มดูดวง
             </button>
           ) : (
@@ -180,7 +230,7 @@ export default function PalmPage() {
                 <input
                   className="w-full h-11 rounded-lg border px-3"
                   value={question}
-                  onChange={(e)=>setQuestion(e.target.value)}
+                  onChange={e => setQuestion(e.target.value)}
                   placeholder="พิมพ์คำถาม"
                 />
                 <button

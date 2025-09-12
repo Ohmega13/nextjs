@@ -133,6 +133,7 @@ export default function ClientsManagePage() {
   async function saveEdit(){
     try{
       if(!editingId) return;
+      if (role !== 'admin') { setMsg('ต้องเป็นแอดมินเท่านั้น'); return; }
       // Split name to first/last for profile_details
       const n = (form.name || '').trim();
       const [first, ...rest] = n.split(/\s+/);
@@ -162,6 +163,7 @@ export default function ClientsManagePage() {
   }
 
   async function deleteClient(c){
+    if (role !== 'admin') { setMsg('ต้องเป็นแอดมินเท่านั้น'); return; }
     try{
       const confirmAll = confirm(`ลบ \"${c.name}${c.nickname?` (${c.nickname})`:""}\" และประวัติทั้งหมดของลูกดวงนี้ด้วยหรือไม่?\n\nกด OK = ลบทั้งลูกดวงและประวัติ\nกด Cancel = ลบเฉพาะลูกดวง (เก็บประวัติไว้)`);
 
@@ -185,7 +187,7 @@ export default function ClientsManagePage() {
 
   return (
     <>
-      <Shell title="ประวัติลูกดวง" subtitle="ค้นหา ดูรายละเอียด แก้ไข หรือลบลูกดวง">
+      <Shell title="จัดการลูกดวง" subtitle="ค้นหา ดูรายละเอียด แก้ไข หรือลบลูกดวง (แอดมิน)">
         <Card className="p-4 sm:p-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Input
@@ -194,11 +196,13 @@ export default function ClientsManagePage() {
               onChange={e=>setQ(e.target.value)}
               placeholder="พิมพ์ชื่อ, ชื่อเล่น, ช่องทางติดต่อ, สถานที่เกิด"
             />
-            <div className="self-end sm:self-auto">
-              <a href="/clients">
-                <Button variant="ghost" className="w-full sm:w-auto">+ เพิ่มลูกดวงใหม่</Button>
-              </a>
-            </div>
+            {role === 'admin' && (
+              <div className="self-end sm:self-auto">
+                <a href="/clients">
+                  <Button variant="ghost" className="w-full sm:w-auto">+ เพิ่มลูกดวงใหม่</Button>
+                </a>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -207,9 +211,11 @@ export default function ClientsManagePage() {
         ) : !filtered.length ? (
           <Card className="p-5 text-center text-slate-600">
             <div className="mb-3">ไม่พบบัญชีลูกดวง</div>
-            <a href="/clients">
-              <Button className="w-full sm:w-auto">+ เพิ่มลูกดวงใหม่</Button>
-            </a>
+            {role === 'admin' && (
+              <a href="/clients">
+                <Button className="w-full sm:w-auto">+ เพิ่มลูกดวงใหม่</Button>
+              </a>
+            )}
           </Card>
         ) : (
           <div className="grid gap-4">
@@ -222,17 +228,19 @@ export default function ClientsManagePage() {
                     <div className="text-slate-500">สร้างเมื่อ {c.created_at ? new Date(c.created_at).toLocaleString() : "-"}</div>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                    {editingId===c.id ? (
-                      <>
-                        <Button onClick={saveEdit} className="w-full sm:w-auto">บันทึก</Button>
-                        <Button variant="ghost" onClick={cancelEdit} className="w-full sm:w-auto">ยกเลิก</Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button variant="ghost" onClick={()=>startEdit(c)} className="w-full sm:w-auto">แก้ไข</Button>
-                        <Button variant="danger" onClick={()=>deleteClient(c)} className="w-full sm:w-auto">ลบ</Button>
-                      </>
-                    )}
+                    {role === 'admin' ? (
+                      editingId===c.id ? (
+                        <>
+                          <Button onClick={saveEdit} className="w-full sm:w-auto">บันทึก</Button>
+                          <Button variant="ghost" onClick={cancelEdit} className="w-full sm:w-auto">ยกเลิก</Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button variant="ghost" onClick={()=>startEdit(c)} className="w-full sm:w-auto">แก้ไข</Button>
+                          <Button variant="danger" onClick={()=>deleteClient(c)} className="w-full sm:w-auto">ลบ</Button>
+                        </>
+                      )
+                    ) : null}
                   </div>
                 </div>
 
@@ -251,7 +259,7 @@ export default function ClientsManagePage() {
                     <Input label="โซนเวลา" value={form.timezone} onChange={e=>setForm(f=>({...f,timezone:e.target.value}))}/>
                   </div>
                 ) : (
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm break-words">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm break-words">
                     <div>
                       <div className="text-slate-500">ติดต่อ</div>
                       <div>{c.contact || "-"}</div>
@@ -259,10 +267,6 @@ export default function ClientsManagePage() {
                     <div>
                       <div className="text-slate-500">วัน/เวลา/ที่เกิด</div>
                       <div>{c.dob || "-"} {c.birth_time||""} {c.birth_place?`• ${c.birth_place}`:""}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">โซนเวลา/เพศ</div>
-                      <div>{c.timezone || "-"} {c.gender?`• ${c.gender}`:""}</div>
                     </div>
                   </div>
                 )}

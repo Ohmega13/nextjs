@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -145,12 +145,14 @@ export default function ProfilePage() {
     }
   }
 
-  // signed URL สำหรับดูรูป
-  async function getSignedUrl(row: PalmImageRow | null) {
+  // signed URL สำหรับดูรูป (memoized เพื่อลด warning dependency)
+  const getSignedUrl = useCallback(async (row: PalmImageRow | null) => {
     if (!row) return null;
-    const { data } = await supabase.storage.from('palm').createSignedUrl(row.path, 60 * 10); // 10 นาที
+    const { data } = await supabase.storage
+      .from('palm')
+      .createSignedUrl(row.path, 60 * 10); // 10 นาที
     return data?.signedUrl ?? null;
-  }
+  }, []);
 
   async function onUpload(side: PalmSide, file: File | null) {
     if (!userId || !file) return;
@@ -415,8 +417,7 @@ function Thumb({
       const u = await getSignedUrl(row);
       setThumbUrl(u);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row?.id, row?.path]);
+  }, [row?.id, row?.path, getSignedUrl]);
 
   return (
     <button onClick={onView} className="rounded overflow-hidden border w-[96px] h-[96px] flex items-center justify-center bg-slate-100">
@@ -445,7 +446,7 @@ function PalmModal({
       const u = await getSignedUrl(row);
       setUrl(u);
     })();
-  }, [row?.id, row?.path]);
+  }, [row?.id, row?.path, getSignedUrl]);
 
   if (!row) return null;
   return (

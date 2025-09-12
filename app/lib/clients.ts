@@ -25,7 +25,7 @@ const baseSelect = `
   birth_time,
   birth_place,
   phone as contact,
-  email,
+  NULL::text as email,
   NULL::text as nickname,
   (
     COALESCE(first_name, '') ||
