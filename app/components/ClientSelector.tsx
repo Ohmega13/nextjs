@@ -1,3 +1,6 @@
+'use client';
+
+import { supabase } from '@/lib/supabaseClient';
 type ProfileDetail = {
   user_id: string;
   first_name: string | null;
