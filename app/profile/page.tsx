@@ -149,7 +149,7 @@ export default function ProfilePage() {
   const getSignedUrl = useCallback(async (row: PalmImageRow | null) => {
     if (!row) return null;
     const { data } = await supabase.storage
-      .from('palm')
+      .from('palm_images')
       .createSignedUrl(row.path, 60 * 10); // 10 นาที
     return data?.signedUrl ?? null;
   }, []);
@@ -161,7 +161,7 @@ export default function ProfilePage() {
       const ext = file.name.split('.').pop() || 'jpg';
       const path = `${userId}/${side}_${Date.now()}.${ext}`;
       // อัปโหลดไฟล์
-      const { error: upErr } = await supabase.storage.from('palm').upload(path, file, {
+      const { error: upErr } = await supabase.storage.from('palm_images').upload(path, file, {
         cacheControl: '3600',
         upsert: false,
         contentType: file.type || 'image/jpeg',
@@ -193,7 +193,7 @@ export default function ProfilePage() {
     setDeleting(s => ({ ...s, [side]: true }));
     try {
       // ลบไฟล์ใน storage
-      await supabase.storage.from('palm').remove([row.path]);
+      await supabase.storage.from('palm_images').remove([row.path]);
       // ลบเรคคอร์ดเมตา
       await supabase.from('palm_images').delete().eq('id', row.id);
       setPalm(prev => ({ ...prev, [side]: null }));

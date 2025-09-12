@@ -9,6 +9,13 @@ import ClientInfoCard from '@/components/ClientInfoCard';
 type CardPick = { name: string; reversed: boolean };
 type ReadingType = '3cards' | 'weigh' | 'celtic';
 
+type ReadingRow = {
+  id: string;
+  created_at: string;
+  topic: string | null;
+  payload: any;
+};
+
 const FULL_DECK: string[] = [
   'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
   'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
@@ -27,6 +34,9 @@ export default function TarotReadingPage() {
   const [cards, setCards] = useState<CardPick[]>([]);
   const [result, setResult] = useState<string>(''); // ข้อความคำทำนาย (mock)
 
+  const [history, setHistory] = useState<ReadingRow[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -39,6 +49,57 @@ export default function TarotReadingPage() {
       setRole((data as any)?.role ?? null);
     })();
   }, []);
+
+  async function loadHistory(currentRole: string | null, selectedClientId: string | null) {
+    setLoadingHistory(true);
+    try {
+      const { data: userRes } = await supabase.auth.getUser();
+      const userId = userRes?.user?.id;
+
+      let q = supabase
+        .from('readings')
+        .select('id, created_at, topic, payload')
+        .eq('mode', 'tarot')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (currentRole === 'admin') {
+        if (selectedClientId) {
+          q = q.eq('client_id', selectedClientId);
+        } else {
+          setHistory([]);
+          setLoadingHistory(false);
+          return;
+        }
+      } else {
+        if (userId) q = q.eq('user_id', userId);
+      }
+
+      const { data, error } = await q;
+      if (error) {
+        console.error('loadHistory(tarot) error:', error);
+        setHistory([]);
+      } else {
+        setHistory((data as ReadingRow[]) || []);
+      }
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  // Member: load own history on mount (after role known)
+  useEffect(() => {
+    if (role === 'member') {
+      loadHistory('member', null);
+    }
+  }, [role]);
+
+  // Admin: reload when client changes
+  useEffect(() => {
+    if (role === 'admin') {
+      loadHistory('admin', clientId);
+    }
+  }, [role, clientId]);
 
   const requiredCount = useMemo(() => {
     if (readingType === '3cards') return 3;
@@ -94,6 +155,8 @@ export default function TarotReadingPage() {
       alert('บันทึกไม่สำเร็จ');
     } else {
       alert('บันทึกผลลัพธ์สำเร็จ');
+      // refresh history
+      loadHistory(role, role === 'admin' ? clientId : null);
     }
   }
 
@@ -208,6 +271,33 @@ export default function TarotReadingPage() {
             </div>
           </div>
         )}
+
+        {/* ประวัติดูดวง (Tarot) */}
+        <div className="rounded-xl border p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-medium">ประวัติดูดวง Tarot</div>
+            {loadingHistory && <span className="text-xs text-slate-500">กำลังโหลด…</span>}
+          </div>
+          {history.length === 0 ? (
+            <div className="text-sm text-slate-500">ยังไม่มีประวัติ</div>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {history.map((h) => (
+                <li key={h.id} className="rounded-lg border p-2">
+                  <div className="text-slate-700">
+                    <span className="font-medium">{new Date(h.created_at).toLocaleString()}</span>
+                    {h.topic ? <> — <span>{h.topic}</span></> : null}
+                  </div>
+                  {h.payload?.cards?.length ? (
+                    <div className="text-slate-600 mt-1">
+                      ไพ่: {h.payload.cards.map((c: any) => c.name + (c.reversed ? ' (กลับหัว)' : '')).join(', ')}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </PermissionGate>
   );
