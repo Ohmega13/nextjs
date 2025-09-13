@@ -10,7 +10,7 @@ type PalmImageRow = {
   id: string;
   user_id: string;
   side: PalmSide;
-  path: string;     // เส้นทางไฟล์ใน storage เช่น palm/{user_id}/left_123.jpg
+  path: string;     // เส้นทางไฟล์ใน storage (คอลัมน์ storage_path) เช่น palm/{user_id}/left_123.jpg
   created_at: string;
 };
 
@@ -93,7 +93,7 @@ export default function ProfilePage() {
         // palm images (ล่าสุดของแต่ละฝั่ง)
         const { data: palms } = await supabase
           .from('palm_images')
-          .select('*')
+          .select('id,user_id,side,path:storage_path,created_at')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -171,8 +171,14 @@ export default function ProfilePage() {
       // จดเมตาลง palm_images
       const { data: ins, error: insErr } = await supabase
         .from('palm_images')
-        .insert({ user_id: userId, side, path })
-        .select()
+        .insert({
+          user_id: userId,
+          side,
+          storage_path: path,
+          mime_type: file.type || null,
+          file_size: (file as any).size ?? null,
+        })
+        .select('id,user_id,side,path:storage_path,created_at')
         .single();
 
       if (insErr) throw insErr;
