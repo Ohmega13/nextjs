@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import PermissionGate from '../../components/PermissionGate';
-import ClientPicker from '../../components/ClientPicker';
-import ClientInfoCard from '../../components/ClientInfoCard';
+import PermissionGate from '@/components/PermissionGate';
+import { ClientSelector } from '@/components/ClientSelector';
+import ClientInfoCard from '@/components/ClientInfoCard';
 
 type CardPick = { name: string; reversed: boolean };
 type ReadingType = '3cards' | 'weigh' | 'celtic';
@@ -26,17 +26,17 @@ const FULL_DECK: string[] = [
 export default function TarotReadingPage() {
   const [role, setRole] = useState<'admin' | 'member' | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
-  const [clientName, setClientName] = useState<string | null>(null);
 
   const [readingType, setReadingType] = useState<ReadingType>('3cards');
   const [topic, setTopic] = useState('');
-  const [options, setOptions] = useState<string[]>(['ตัวเลือก A', 'ตัวเลือก B']); // สำหรับโหมดชั่งน้ำหนัก
+  const [options, setOptions] = useState<string[]>(['ตัวเลือก A', 'ตัวเลือก B']);
   const [cards, setCards] = useState<CardPick[]>([]);
-  const [result, setResult] = useState<string>(''); // ข้อความคำทำนาย (mock)
+  const [result, setResult] = useState<string>('');
 
   const [history, setHistory] = useState<ReadingRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // ตรวจบทบาท
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -51,7 +51,8 @@ export default function TarotReadingPage() {
     })();
   }, []);
 
-  async function loadHistory(currentRole: string | null, selectedClientId: string | null) {
+  // โหลดประวัติ tarot ตามสิทธิ์
+  async function loadHistory(currentRole: 'admin' | 'member', selectedClientId?: string | null) {
     setLoadingHistory(true);
     try {
       const { data: userRes } = await supabase.auth.getUser();
@@ -65,15 +66,13 @@ export default function TarotReadingPage() {
         .limit(20);
 
       if (currentRole === 'admin') {
-        if (selectedClientId) {
-          q = q.eq('client_id', selectedClientId);
-        } else {
+        if (!selectedClientId) {
           setHistory([]);
-          setLoadingHistory(false);
           return;
         }
-      } else {
-        if (userId) q = q.eq('user_id', userId);
+        q = q.eq('client_id', selectedClientId);
+      } else if (userId) {
+        q = q.eq('user_id', userId);
       }
 
       const { data, error } = await q;
@@ -88,24 +87,20 @@ export default function TarotReadingPage() {
     }
   }
 
-  // Member: load own history on mount (after role known)
+  // member: โหลดประวัติตัวเองเมื่อรู้บทบาท
   useEffect(() => {
-    if (role === 'member') {
-      loadHistory('member', null);
-    }
+    if (role === 'member') loadHistory('member');
   }, [role]);
 
-  // Admin: reload when client changes
+  // admin: โหลดเมื่อเลือก client
   useEffect(() => {
-    if (role === 'admin') {
-      loadHistory('admin', clientId);
-    }
+    if (role === 'admin') loadHistory('admin', clientId);
   }, [role, clientId]);
 
   const requiredCount = useMemo(() => {
     if (readingType === '3cards') return 3;
     if (readingType === 'weigh') return options.length; // 1 ใบต่อตัวเลือก
-    return 10; // celtic 10 ใบ
+    return 10; // celtic
   }, [readingType, options.length]);
 
   function draw() {
@@ -119,14 +114,13 @@ export default function TarotReadingPage() {
     }
     setCards(picks);
 
-    // สร้างคำทำนายอย่างง่าย (mock)
     let text = '';
     if (readingType === '3cards') {
-      text = `สรุป 3 ใบสำหรับ "${topic || 'คำถาม'}" : ไพ่ชี้ให้เห็นมุมอดีต-ปัจจุบัน-อนาคต ควรใช้สติและวางแผนต่อเนื่อง`;
+      text = `สรุป 3 ใบสำหรับ "${topic || 'คำถาม'}" : ใช้สติและวางแผนต่อเนื่อง`;
     } else if (readingType === 'weigh') {
-      text = `การชั่งน้ำหนักตัวเลือก: ไพ่ที่ออกเป็นแนวทาง เปรียบเทียบ ${options.join(' / ')} โดยรวมให้ฟังเสียงหัวใจและข้อมูลจริงควบคู่กัน`;
+      text = `การชั่งน้ำหนัก: เปรียบเทียบ ${options.join(' / ')} โดยรวมให้ฟังใจและข้อมูลจริงควบคู่กัน`;
     } else {
-      text = `Celtic Cross 10 ใบ: สถานการณ์มีหลายชั้น ลองทบทวนเป้าหมายและขอคำแนะนำจากคนที่ไว้ใจ`;
+      text = 'Celtic Cross 10 ใบ: สถานการณ์มีหลายชั้น ลองทบทวนเป้าหมายและขอคำแนะนำจากคนที่ไว้ใจ';
     }
     setResult(text);
   }
@@ -156,8 +150,7 @@ export default function TarotReadingPage() {
       alert('บันทึกไม่สำเร็จ');
     } else {
       alert('บันทึกผลลัพธ์สำเร็จ');
-      // refresh history
-      loadHistory(role ?? 'member', (role ?? 'member') === 'admin' ? clientId : null);
+      loadHistory((role ?? 'member') as 'admin' | 'member', role === 'admin' ? clientId : null);
     }
   }
 
@@ -169,17 +162,14 @@ export default function TarotReadingPage() {
         {/* Admin เท่านั้นถึงจะเลือกชื่อลูกดวงได้ */}
         {role === 'admin' ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <ClientPicker
+            <ClientSelector
               value={clientId}
-              onChange={(id, c) => {
-                setClientId(id);
-                setClientName(c?.name || c?.email || null);
-              }}
+              onChange={(id) => setClientId(id)}
             />
             <ClientInfoCard forUserId={clientId ?? undefined} />
           </div>
         ) : (
-          <ClientInfoCard /> // member แสดงของตัวเอง
+          <ClientInfoCard />
         )}
 
         {/* ประเภทการเปิดไพ่ */}
