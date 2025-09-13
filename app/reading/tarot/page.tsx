@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import PermissionGate from '@/components/PermissionGate';
-import ClientPicker from '@/components/ClientPicker';
-import ClientInfoCard from '@/components/ClientInfoCard';
+import PermissionGate from '../../components/PermissionGate';
+import ClientPicker from '../../components/ClientPicker';
+import ClientInfoCard from '../../components/ClientInfoCard';
 
 type CardPick = { name: string; reversed: boolean };
 type ReadingType = '3cards' | 'weigh' | 'celtic';
@@ -24,7 +24,7 @@ const FULL_DECK: string[] = [
 ];
 
 export default function TarotReadingPage() {
-  const [role, setRole] = useState<string | null>(null);
+  const [role, setRole] = useState<'admin' | 'member' | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
 
@@ -46,7 +46,8 @@ export default function TarotReadingPage() {
         .select('role')
         .eq('user_id', user.id)
         .maybeSingle();
-      setRole((data as any)?.role ?? null);
+      const r = (data as any)?.role?.toLowerCase?.() ?? null;
+      setRole(r === 'admin' ? 'admin' : 'member');
     })();
   }, []);
 
@@ -156,7 +157,7 @@ export default function TarotReadingPage() {
     } else {
       alert('บันทึกผลลัพธ์สำเร็จ');
       // refresh history
-      loadHistory(role, role === 'admin' ? clientId : null);
+      loadHistory(role ?? 'member', (role ?? 'member') === 'admin' ? clientId : null);
     }
   }
 
