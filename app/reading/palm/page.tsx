@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import PermissionGate from '@/components/PermissionGate';
 import { supabase } from '@/lib/supabaseClient';
 import { getProfileDetailsByUserId, getPalmSignedUrls, type ProfileRow } from '@/lib/profile';
-import ClientSelector from '@/components/ClientSelector';
+import { ClientSelector } from '@/components/ClientSelector';
 
 export default function PalmPage() {
   const [role, setRole] = useState<'admin'|'member'>('member');
