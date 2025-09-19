@@ -93,6 +93,9 @@ export default function TarotReadingPage() {
       setCards(r.payload.slots.map((s: any) => s.card));
     }
 
+    // เก็บข้อความคำทำนายจาก API (ถ้ามี)
+    setResult(r.payload?.analysis ?? "");
+
     // prepend ประวัติ
     setHistory(prev => [{ id: r.id, created_at: r.created_at, topic: r.topic, payload: r.payload }, ...prev]);
   }
@@ -289,7 +292,12 @@ export default function TarotReadingPage() {
               ไพ่ที่ได้: {cards.map(c => `${c.name}${c.reversed ? ' (กลับหัว)' : ''}`).join(', ')}
             </div>
           )}
-          {!!result && <div className="text-sm text-slate-700">{result}</div>}
+          {result && (
+            <div className="rounded-xl border p-4 mt-3">
+              <div className="font-medium mb-2">คำทำนาย</div>
+              <div className="whitespace-pre-wrap text-sm text-slate-700">{result}</div>
+            </div>
+          )}
         </div>
 
         {/* ประวัติดูไพ่ */}

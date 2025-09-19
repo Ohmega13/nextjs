@@ -1,6 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import OpenAI from "openai";
 
 // --- Types ---
 type TarotMode = "threeCards" | "weighOptions" | "classic10";
@@ -160,6 +161,33 @@ export async function POST(req: NextRequest) {
       prompt = buildClassic10Prompt(userBrief, slots);
     }
 
+    // --- Generate analysis from prompt (optional if no key) ---
+    let analysis = "";
+    try {
+      if (process.env.OPENAI_API_KEY) {
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0.7,
+          max_tokens: 900,
+          messages: [
+            {
+              role: "system",
+              content:
+                "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น",
+            },
+            { role: "user", content: prompt },
+          ],
+        });
+        analysis = completion.choices?.[0]?.message?.content?.trim() ?? "";
+      }
+    } catch (_) {
+      analysis = "";
+    }
+
+    // ผูก prompt และผลวิเคราะห์ไว้ใน payload
+    payload = { ...payload, prompt, analysis };
+
     // บันทึกลง Supabase (ใช้ RLS + cookies auth)
     const { data, error } = await supabase
       .from("readings")
@@ -167,7 +195,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         mode: "tarot",
         topic,
-        payload: { ...payload, prompt }, // JSON - include prompt for admin editing
+        payload, // JSON includes prompt + analysis
       })
       .select("id, created_at, topic, payload")
       .single();
