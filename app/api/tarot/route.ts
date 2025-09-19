@@ -92,7 +92,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
             cookieStore.set({ name, value, ...(options || {}) });
           },
           remove(name: string, options?: any) {
-            cookieStore.delete(name);
+            cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
           },
         },
       }
