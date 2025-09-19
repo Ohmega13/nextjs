@@ -96,7 +96,20 @@ export async function POST(req: NextRequest) {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: () => cookieStore }
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+          set(name: string, value: string, options?: any) {
+            // Next 15 supports object form for set
+            cookieStore.set({ name, value, ...(options || {}) });
+          },
+          remove(name: string, options?: any) {
+            cookieStore.delete(name);
+          },
+        },
+      }
     );
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -163,7 +176,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         mode: "tarot",
         topic,
-        payload, // JSON
+        payload: { ...payload, prompt }, // JSON - include prompt for admin editing
       })
       .select("id, created_at, topic, payload")
       .single();
@@ -172,7 +185,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, reading: data, prompt }, { status: 200 });
+    return NextResponse.json({ ok: true, reading: data }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN" }, { status: 500 });
   }
