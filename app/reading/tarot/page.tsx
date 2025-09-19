@@ -65,9 +65,17 @@ export default function TarotReadingPage() {
       apiPayload = { mode: 'classic10' };
     }
 
+    // แนบ access token ใน Authorization header เพื่อให้ API auth ผ่าน
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } catch {}
+
     const res = await fetch('/api/tarot', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(apiPayload),
     });
 
