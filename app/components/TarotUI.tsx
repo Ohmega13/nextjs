@@ -147,8 +147,7 @@ export function TarotUI({
               ))}
             </div>
             <p className="text-sm text-gray-500 mt-2">
-              อย่างน้อย 2 ตัวเลือก ระบบจะสุ่มเปิดไพ่ 1 ใบต่อ 1 ตัวเลือก แล้วสรุปว่า
-              "ควรเลือกอันไหน เพราะอะไร"
+              อย่างน้อย 2 ตัวเลือก ระบบจะสุ่มเปิดไพ่ 1 ใบต่อ 1 ตัวเลือก แล้วสรุปว่า &quot;ควรเลือกอันไหน เพราะอะไร&quot;
             </p>
           </div>
         )}
@@ -203,16 +202,4 @@ export function TarotUI({
  * }
  */
 
-// --- Optional: helper to pick cards without mutating state ---
-function pickCards(count: number): CardPick[] {
-  const picks: CardPick[] = [];
-  const used = new Set<number>();
-  while (picks.length < count) {
-    const i = Math.floor(Math.random() * FULL_DECK.length);
-    if (used.has(i)) continue;
-    used.add(i);
-    picks.push({ name: FULL_DECK[i], reversed: Math.random() < 0.5 });
-  }
-  return picks;
-}
 

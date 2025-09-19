@@ -245,7 +245,7 @@ export default function TarotReadingPage() {
                   />
                 ))}
               </div>
-              <p className="text-sm text-slate-500 mt-1">อย่างน้อย 2 ตัวเลือก ระบบจะเปิดไพ่ 1 ใบต่อ 1 ตัวเลือก แล้วสรุปว่า "ควรเลือกอันไหน เพราะอะไร"</p>
+              <p className="text-sm text-slate-500 mt-1">อย่างน้อย 2 ตัวเลือก ระบบจะเปิดไพ่ 1 ใบต่อ 1 ตัวเลือก แล้วสรุปว่า &quot;ควรเลือกอันไหน เพราะอะไร&quot;</p>
             </div>
           )}
 
