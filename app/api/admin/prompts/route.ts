@@ -20,51 +20,79 @@ async function getSupabase() {
   );
 }
 
-async function assertAdmin(supabase: any) {
+async function assertUser(supabase: any) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false as const, status: 401 as const, error: "UNAUTHENTICATED" };
-  const { data } = await supabase.rpc("is_admin", { uid: user.id });
-  if (!data) return { ok: false as const, status: 403 as const, error: "FORBIDDEN" };
   return { ok: true as const, user };
 }
 
-export async function PUT(req: NextRequest, context: { params: { id: string } }) {
+async function assertAdmin(supabase: any) {
+  const u = await assertUser(supabase);
+  if (!u.ok) return u;
+  const { data } = await supabase.rpc("is_admin", { uid: u.user.id });
+  if (!data) return { ok: false as const, status: 403 as const, error: "FORBIDDEN" };
+  return { ok: true as const, user: u.user };
+}
+
+/** GET /api/admin/prompts?system=tarot|natal|palm */
+export async function GET(req: NextRequest) {
   const supabase = await getSupabase();
 
-  const guard = await assertAdmin(supabase);
-  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+  // ต้องล็อกอินก่อน (ให้สอดคล้องกับ RLS: select for authenticated)
+  const guard = await assertUser(supabase);
+  if (!guard.ok) {
+    return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+  }
 
-  const { id } = context.params;
+  const { searchParams } = new URL(req.url);
+  const system = searchParams.get("system") as "tarot" | "natal" | "palm" | null;
+
+  let q = supabase.from("prompts").select("*").order("updated_at", { ascending: false });
+  if (system) q = q.eq("system", system);
+
+  const { data, error } = await q;
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  }
+  return NextResponse.json({ ok: true, items: data ?? [] });
+}
+
+/** POST /api/admin/prompts  (admin only) */
+export async function POST(req: NextRequest) {
+  const supabase = await getSupabase();
+
+  // ต้องเป็นแอดมิน
+  const guard = await assertAdmin(supabase);
+  if (!guard.ok) {
+    return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+  }
+
   const body = await req.json();
+  const { key, title, system, subtype, content } = body ?? {};
+
+  if (!key || !title || !system || !content) {
+    return NextResponse.json(
+      { ok: false, error: "MISSING_FIELDS" },
+      { status: 400 }
+    );
+  }
 
   const { data, error } = await supabase
     .from("prompts")
-    .update({
-      key: body.key,
-      title: body.title,
-      system: body.system,
-      subtype: body.subtype ?? null,
-      content: body.content,
+    .insert({
+      key,
+      title,
+      system,
+      subtype: subtype ?? null,
+      content,
       updated_by: guard.user.id,
     })
-    .eq("id", id)
     .select("*")
     .single();
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  }
+
   return NextResponse.json({ ok: true, item: data });
-}
-
-export async function DELETE(_req: NextRequest, context: { params: { id: string } }) {
-  const supabase = await getSupabase();
-
-  const guard = await assertAdmin(supabase);
-  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
-
-  const { id } = context.params;
-
-  const { error } = await supabase.from("prompts").delete().eq("id", id);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-
-  return NextResponse.json({ ok: true });
 }
