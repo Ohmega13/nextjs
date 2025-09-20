@@ -1,6 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 
 // --- Types ---
@@ -40,7 +41,7 @@ function pickCards(count: number): CardPick[] {
   return picks;
 }
 
-// --- Prompt builders ---
+// --- Prompt builders (fallback templates) ---
 type UserBrief = { fullName: string; birthDate: string; birthTime?: string };
 const face = (c: CardPick) => `${c.name}${c.reversed ? " (กลับหัว)" : ""}`;
 
@@ -88,23 +89,54 @@ ${lines}
   );
 }
 
+// --- New helpers ---
+function renderTemplate(tpl: string, vars: Record<string, string>) {
+  return tpl.replace(/{{\s*(\w+)\s*}}/g, (_, key) => vars[key] ?? "");
+}
+
+async function fetchPromptContent(supabase: any, key: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("public.prompts")
+    .select("content")
+    .eq("key", key)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.content ?? null;
+}
+
+function promptKeyForTarot(mode: TarotMode): string {
+  switch (mode) {
+    case "threeCards": return "tarot_threeCards";
+    case "weighOptions": return "tarot_weighOptions";
+    case "classic10": return "tarot_classic10";
+  }
+}
+
+// --- Supabase client helper ---
+function getSupabase() {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies,
+      headers,
+      cookieOptions: {
+        // Forward x-forwarded-host header
+        forwardHeaders: ["x-forwarded-host"],
+      },
+    }
+  );
+}
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    // Use Bearer token from Authorization header for RLS-authenticated requests
-    const authHeader = req.headers.get("authorization") ?? "";
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          headers: authHeader ? { Authorization: authHeader } : {},
-        },
-      }
-    );
+    const supabase = getSupabase();
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
@@ -138,7 +170,6 @@ export async function POST(req: NextRequest) {
       const cards = pickCards(3);
       topic = q;
       payload = { ...payload, question: q, cards };
-      prompt = buildThreeCardsPrompt(userBrief, q, cards);
     }
 
     if (mode === "weighOptions") {
@@ -150,7 +181,6 @@ export async function POST(req: NextRequest) {
       const cards = pickCards(Math.max(2, _opts.length)); // 1 ใบ/ตัวเลือก (อย่างน้อย 2)
       const pairs = _opts.map((option: string, i: number) => ({ option, card: cards[i] }));
       payload = { ...payload, options: _opts, pairs };
-      prompt = buildWeighOptionsPrompt(userBrief, pairs);
     }
 
     if (mode === "classic10") {
@@ -158,7 +188,31 @@ export async function POST(req: NextRequest) {
       const slots = CELTIC_SLOTS.map((s, i) => ({ pos: s.no, label: s.label, card: cards[i] }));
       payload = { ...payload, slots };
       topic = null;
-      prompt = buildClassic10Prompt(userBrief, slots);
+    }
+
+    // Build prompt with optional DB template fallback to old builders
+    const key = promptKeyForTarot(mode);
+    const dbContent = await fetchPromptContent(supabase, key);
+    const vars = {
+      full_name: userBrief.fullName,
+      dob: userBrief.birthDate,
+      birth_time: userBrief.birthTime ?? "",
+      question: topic ?? "",
+      options: (payload.options?.join(", ") || ""),
+      cards: (payload.cards?.map((c: CardPick) => c.name + (c.reversed ? " (กลับหัว)" : "")).join(", ") || ""),
+      slots_text: (payload.slots ? payload.slots.map((s: any) => `${s.pos}. ${s.label}: ${s.card.name}${s.card.reversed ? " (กลับหัว)" : ""}`).join("\n") : ""),
+    };
+    if (dbContent) {
+      prompt = renderTemplate(dbContent, vars);
+    } else {
+      // fallback to old builders
+      if (mode === "threeCards") {
+        prompt = buildThreeCardsPrompt(userBrief, topic ?? "", payload.cards);
+      } else if (mode === "weighOptions") {
+        prompt = buildWeighOptionsPrompt(userBrief, payload.pairs);
+      } else if (mode === "classic10") {
+        prompt = buildClassic10Prompt(userBrief, payload.slots);
+      }
     }
 
     // --- Generate analysis from prompt (optional if no key) ---
@@ -186,18 +240,18 @@ export async function POST(req: NextRequest) {
     }
 
     // ผูก prompt และผลวิเคราะห์ไว้ใน payload
-    payload = { ...payload, prompt, analysis };
+    payload = { ...payload, prompt_used: prompt, analysis };
 
     // บันทึกลง Supabase (ใช้ RLS + cookies auth)
     const { data, error } = await supabase
       .from("readings")
       .insert({
         user_id: user.id,
-        mode: "tarot",
-        topic,
-        payload, // JSON includes prompt + analysis
+        type: "tarot",
+        title: topic ?? null,
+        payload, // JSON includes prompt_used + analysis
       })
-      .select("id, created_at, topic, payload")
+      .select("id, created_at, title, payload")
       .single();
 
     if (error) {
