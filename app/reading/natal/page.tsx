@@ -45,6 +45,11 @@ export default function NatalPage() {
   const [showBaseline, setShowBaseline] = useState(false);
   const hasBaseline = !!baseline;
 
+  // --- NEW: follow-up ask result modal ---
+  const [asking, setAsking] = useState(false);
+  const [followup, setFollowup] = useState<{ created_at?: string; topic?: string; analysis?: string } | null>(null);
+  const [showFollowup, setShowFollowup] = useState(false);
+
   // seed role + profile(s)
   useEffect(() => {
     let ignore = false;
@@ -188,9 +193,20 @@ export default function NatalPage() {
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
+      // validate minimal profile for baseline
+      if (!birthDate || !birthPlace) {
+        alert('กรุณากรอก “วันเกิด” และ “สถานที่เกิด” ในโปรไฟล์ให้ครบก่อนเริ่มดูพื้นดวง');
+        return;
+      }
       const body = {
         system, // 'thai' | 'western'
         action: 'init-baseline',
+        profile: {
+          full_name: ([firstName, lastName].filter(Boolean).join(' ') || '').trim(),
+          dob: birthDate || '',
+          birth_time: birthTime || '',
+          birth_place: birthPlace || '',
+        },
         // server will infer target user from auth; admin case can optionally pass selectedClientId in future
       };
 
@@ -217,18 +233,64 @@ export default function NatalPage() {
     }
   }
 
-  function onRead() {
+  // --- NEW: ask follow-up based on existing baseline ---
+  async function onAskFollowup() {
     if (!hasBaseline) {
       alert('โปรดดูพื้นดวงก่อน จากนั้นจึงพิมพ์คำถามเพิ่มเติมได้');
       return;
     }
-    alert(
-      `เริ่มดูพื้นดวงด้วยระบบ: ${system === 'thai' ? 'ไทย' : 'ตะวันตก'}\n` +
-      `ชื่อลูกดวง: ${fullName}\n` +
-      `เกิด: ${birthDate}${birthTime ? ' ' + birthTime : ''}\n` +
-      `สถานที่เกิด: ${birthPlace || '-'}\n` +
-      `คำถาม: ${question || '-'}\n`
-    );
+    if (!question.trim()) {
+      alert('กรุณาพิมพ์คำถามเพิ่มเติมก่อน');
+      return;
+    }
+    // optional: basic profile guard
+    if (!birthDate || !birthPlace) {
+      alert('ข้อมูลวันเกิด/สถานที่เกิดไม่ครบ กรุณาอัปเดตโปรไฟล์ก่อนถามต่อยอด');
+      return;
+    }
+
+    try {
+      setAsking(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+
+      const body = {
+        system,
+        action: 'ask-followup',
+        question: question.trim(),
+        profile: {
+          full_name: ([firstName, lastName].filter(Boolean).join(' ') || '').trim(),
+          dob: birthDate || '',
+          birth_time: birthTime || '',
+          birth_place: birthPlace || '',
+        },
+      };
+
+      const res = await fetch('/api/natal', { method: 'POST', headers, body: JSON.stringify(body) });
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || 'ขอคำตอบไม่สำเร็จ');
+      }
+
+      const reading = json.reading || {};
+      setFollowup({
+        created_at: reading.created_at,
+        topic: reading.topic,
+        analysis: reading?.payload?.analysis || '',
+      });
+      setShowFollowup(true);
+      setQuestion('');
+    } catch (e: any) {
+      alert(e?.message || 'เกิดข้อผิดพลาด');
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  function onRead() {
+    // keep for backward compatibility – now delegates to follow-up API
+    onAskFollowup();
   }
 
   return (
@@ -338,8 +400,8 @@ export default function NatalPage() {
             <button
               onClick={onRead}
               className="w-full sm:w-auto rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-50"
-              disabled={loading || !hasBaseline}
-            >ดูดวงอ้างอิงตามพื้นดวง</button>
+              disabled={loading || !hasBaseline || asking}
+            >{asking ? 'กำลังวิเคราะห์…' : 'ดูดวงอ้างอิงตามพื้นดวง'}</button>
           </div>
         </div>
       </div>
@@ -365,6 +427,35 @@ export default function NatalPage() {
                   <div className="font-medium mb-1">คำอธิบายพื้นดวง</div>
                   <div className="whitespace-pre-wrap text-slate-700">
                     {baseline.payload.analysis}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: คำตอบจากพื้นดวง (ถามต่อยอด) */}
+      {showFollowup && followup && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowFollowup(false)} />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(800px,92vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">ผลการวิเคราะห์ (อ้างอิงพื้นดวง)</h3>
+              <button className="px-2 py-1 rounded-md border hover:bg-slate-50" onClick={() => setShowFollowup(false)}>ปิด</button>
+            </div>
+            <div className="text-sm space-y-3">
+              <div className="grid grid-cols-[110px_1fr] gap-x-3">
+                <div className="text-slate-500">วันที่</div>
+                <div>{followup.created_at ? new Date(followup.created_at).toLocaleString() : '-'}</div>
+                <div className="text-slate-500">หัวข้อ</div>
+                <div>{followup.topic ?? '-'}</div>
+              </div>
+              {followup.analysis && (
+                <div className="rounded-xl border p-3">
+                  <div className="font-medium mb-1">คำตอบ</div>
+                  <div className="whitespace-pre-wrap text-slate-700">
+                    {followup.analysis}
                   </div>
                 </div>
               )}
