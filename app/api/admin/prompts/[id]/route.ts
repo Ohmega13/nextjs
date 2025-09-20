@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
-// Next 15: cookies() เป็น async
+// สร้าง Supabase client ที่รองรับ Next 15 (cookies() เป็น async)
 async function getSupabase() {
-  const cookieStore = await cookies();
+  const c = await cookies();
+  const h = headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,24 +13,24 @@ async function getSupabase() {
     {
       cookies: {
         get(name: string) {
-          return cookieStore.get(name)?.value;
+          return c.get(name)?.value;
         },
-        set(name: string, value: string, options?: any) {
-          // ใน Route Handler มีสิทธิ์ set cookie ได้
-          cookieStore.set({ name, value, ...(options || {}) });
+        set(name: string, value: string, opts?: any) {
+          c.set({ name, value, ...opts });
         },
-        remove(name: string, options?: any) {
-          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
+        remove(name: string, opts?: any) {
+          c.set({ name, value: "", ...opts, maxAge: 0 });
         },
       },
+      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
     }
   );
 }
 
-async function assertAdmin() {
+async function requireAdmin() {
   const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Response("UNAUTHENTICATED", { status: 401 });
+  if (!user) return { supabase, isAdmin: false };
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -37,67 +38,38 @@ async function assertAdmin() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (profile?.role !== "admin") {
-    throw new Response("FORBIDDEN", { status: 403 });
-  }
-  return supabase;
+  return { supabase, isAdmin: profile?.role === "admin" };
 }
 
-// UPDATE one
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = await assertAdmin();
-    const body = await req.json();
+// ✅ NOTE: context ต้องเป็น Promise ของ params ใน Next 15
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
 
-    const { data, error } = await supabase
-      .from("prompts")
-      .update({
-        key: body.key,
-        title: body.title,
-        system: body.system,
-        subtype: body.subtype ?? null,
-        content: body.content,
-      })
-      .eq("id", params.id)
-      .select("*")
-      .maybeSingle();
+  const { supabase, isAdmin } = await requireAdmin();
+  if (!isAdmin) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    }
+  const body = await req.json();
+  const { key, title, system, subtype, content } = body as {
+    key: string; title: string; system: "tarot" | "natal" | "palm";
+    subtype: string | null; content: string;
+  };
 
-    return NextResponse.json({ ok: true, item: data });
-  } catch (e: any) {
-    if (e instanceof Response) return e; // ส่ง status จาก assertAdmin
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_PUT" }, { status: 500 });
-  }
+  const { error } = await supabase
+    .from("prompts")
+    .update({ key, title, system, subtype, content })
+    .eq("id", id);
+
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }
 
-// DELETE one
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = await assertAdmin();
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
 
-    const { error } = await supabase
-      .from("prompts")
-      .delete()
-      .eq("id", params.id);
+  const { supabase, isAdmin } = await requireAdmin();
+  if (!isAdmin) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    if (e instanceof Response) return e;
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_DELETE" }, { status: 500 });
-  }
+  const { error } = await supabase.from("prompts").delete().eq("id", id);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }
-
-export const dynamic = "force-dynamic";
