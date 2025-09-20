@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 
-// --- Supabase client (รองรับ Next 15: cookies/headers เป็น async) ---
+// --- Supabase client (รองรับ Next 15: cookies เป็น async) ---
 async function getSupabase() {
   const cookieStore = await cookies();
-  const hdrs = await headers(); // ✅ ต้อง await
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,8 +21,6 @@ async function getSupabase() {
           cookieStore.set({ name, value: "", ...opts, maxAge: 0 });
         },
       },
-      // ไม่ใส่ก็ได้ แต่ถ้าจะส่งต่อ header ก็ต้อง await แล้วค่อย get
-      headers: { "x-forwarded-host": hdrs.get("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -42,9 +39,14 @@ async function requireAdmin() {
   return { supabase, isAdmin: profile?.role === "admin" };
 }
 
-// ✅ Next 15: context.params เป็น Promise ต้อง await
-export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+async function getIdFromCtx(ctx: any): Promise<string> {
+  const p = ctx?.params;
+  const resolved = p && typeof p.then === "function" ? await p : p;
+  return resolved?.id as string;
+}
+
+export async function PUT(req: NextRequest, ctx: any) {
+  const id = await getIdFromCtx(ctx);
 
   const { supabase, isAdmin } = await requireAdmin();
   if (!isAdmin) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
@@ -67,8 +69,8 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+export async function DELETE(_req: NextRequest, ctx: any) {
+  const id = await getIdFromCtx(ctx);
 
   const { supabase, isAdmin } = await requireAdmin();
   if (!isAdmin) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
