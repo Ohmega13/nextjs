@@ -1,42 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/admin/prompts/[id]/route.ts
+import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-async function getClients() {
-  const cookieStore = await cookies();
-  const hdrs = await headers();
-  const supabase = createServerClient(
+async function getSupabase() {
+  const cookieStore = cookies();
+  const hdrs = headers();
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         get: (name: string) => cookieStore.get(name)?.value,
-        set(name, value, opts) {
-          cookieStore.set({ name, value, ...opts });
-        },
-        remove(name, opts) {
-          cookieStore.set({ name, value: "", ...opts, maxAge: 0 });
-        },
+        set(name, value, opts) { cookieStore.set({ name, value, ...opts }); },
+        remove(name, opts) { cookieStore.set({ name, value: "", ...opts, maxAge: 0 }); },
       },
       headers: { "x-forwarded-host": hdrs.get("x-forwarded-host") ?? "" },
     }
   );
-  return supabase;
 }
 
 async function assertAdmin(supabase: any) {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
+  if (!user) return { ok: false as const, status: 401 as const, error: "UNAUTHENTICATED" };
   const { data } = await supabase.rpc("is_admin", { uid: user.id });
-  return !!data;
+  if (!data) return { ok: false as const, status: 403 as const, error: "FORBIDDEN" };
+  return { ok: true as const, user };
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = await getClients();
-  if (!(await assertAdmin(supabase))) {
-    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
-  }
+// IMPORTANT: don't type the 2nd arg strictly; Next 15 is picky here.
+export async function PUT(req: Request, ctx: any) {
+  const supabase = await getSupabase();
+  const guard = await assertAdmin(supabase);
+  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+
+  const id = ctx?.params?.id as string;
+  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+
   const body = await req.json();
+
   const { data, error } = await supabase
     .from("prompts")
     .update({
@@ -45,9 +47,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       system: body.system,
       subtype: body.subtype ?? null,
       content: body.content,
-      updated_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+      updated_by: guard.user.id,
     })
-    .eq("id", params.id)
+    .eq("id", id)
     .select("*")
     .single();
 
@@ -55,12 +57,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ ok: true, item: data });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const supabase = await getClients();
-  if (!(await assertAdmin(supabase))) {
-    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
-  }
-  const { error } = await supabase.from("prompts").delete().eq("id", params.id);
+export async function DELETE(_req: Request, ctx: any) {
+  const supabase = await getSupabase();
+  const guard = await assertAdmin(supabase);
+  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+
+  const id = ctx?.params?.id as string;
+  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+
+  const { error } = await supabase.from("prompts").delete().eq("id", id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
   return NextResponse.json({ ok: true });
 }
