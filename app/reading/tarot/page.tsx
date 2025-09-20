@@ -48,6 +48,11 @@ export default function TarotReadingPage() {
   const [history, setHistory] = useState<ReadingRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // --- NEW: confirm modal & progress while drawing ---
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [progress, setProgress] = useState(0);
+
   // ตัวเลือกสำหรับโหมดชั่งน้ำหนัก (2–3 ตัวเลือก)
   const [options, setOptions] = useState<string[]>(['', '', '']);
 
@@ -62,6 +67,20 @@ export default function TarotReadingPage() {
     if (openView) window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [openView]);
+
+  // วิ่งแถบ progress ระหว่างกำลังเปิดไพ่
+  useEffect(() => {
+    let t: any;
+    if (isDrawing) {
+      setProgress(8);
+      t = setInterval(() => {
+        setProgress((p) => (p < 92 ? p + Math.random() * 8 : p));
+      }, 300);
+    } else {
+      setProgress(0);
+    }
+    return () => clearInterval(t);
+  }, [isDrawing]);
 
   function updateOption(i: number, v: string) {
     setOptions(prev => prev.map((x, idx) => (idx === i ? v : x)));
@@ -94,16 +113,34 @@ export default function TarotReadingPage() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
     } catch {}
 
-    const res = await fetch('/api/tarot', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(apiPayload),
-    });
+    setIsDrawing(true);
+    let res: Response;
+    try {
+      res = await fetch('/api/tarot', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(apiPayload),
+      });
+    } finally {
+      // nothing here; we'll stop the spinner after processing
+    }
 
-    if (!res.ok) return;
+    if (!res.ok) {
+      setIsDrawing(false);
+      setShowConfirm(false);
+      setProgress(100);
+      setTimeout(() => setProgress(0), 600);
+      return;
+    }
     const data = await res.json(); // { ok, reading }
     const r = data?.reading;
-    if (!r) return;
+    if (!r) {
+      setIsDrawing(false);
+      setShowConfirm(false);
+      setProgress(100);
+      setTimeout(() => setProgress(0), 600);
+      return;
+    }
 
     // อัปเดตไพ่บนหน้าจอสำหรับโชว์ทันที
     if (r.payload?.cards) {
@@ -119,6 +156,11 @@ export default function TarotReadingPage() {
 
     // prepend ประวัติ
     setHistory(prev => [{ id: r.id, created_at: r.created_at, topic: r.topic, payload: r.payload }, ...prev]);
+
+    setIsDrawing(false);
+    setShowConfirm(false);
+    setProgress(100);
+    setTimeout(() => setProgress(0), 600);
   }
 
   // ตรวจ role
@@ -300,7 +342,7 @@ export default function TarotReadingPage() {
           <button
             className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50"
             disabled={!canSubmit()}
-            onClick={handleDraw}
+            onClick={() => setShowConfirm(true)}
           >
             ดูดวง
           </button>
@@ -342,6 +384,43 @@ export default function TarotReadingPage() {
           )}
         </div>
       </div>
+
+      {/* --- Modal ก่อนเริ่มเปิดไพ่ --- */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => !isDrawing && setShowConfirm(false)} />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(720px,90vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-xl p-5">
+            <h3 className="text-lg font-semibold mb-3">เตรียมจิตก่อนเปิดไพ่</h3>
+            <div className="text-sm whitespace-pre-wrap bg-slate-50 rounded-xl p-4">
+              {`นั่งในท่าสบาย ๆ หายใจเข้าออกสักครู่ แล้วตั้งจิตอธิษฐาน
+
+“ข้าพเจ้า ${`${(profile?.first_name ?? '')} ${(profile?.last_name ?? '')}`.trim() || '-'} เกิดวันที่ ${profile?.dob ?? '-'}
+ขอนอบน้อมต่อสิ่งศักดิ์สิทธิ์ทั้งหลาย
+ขอบารมีพระพุทธ พระธรรม พระสงฆ์ เทพเทวา ครูบาอาจารย์ และพลังแห่งจักรวาล
+โปรดเปิดทางแห่งความจริงให้ปรากฏ
+ขอให้คำทำนายครั้งนี้ชัดเจน ตรงไปตรงมา เพื่อประโยชน์สูงสุดของข้าพเจ้า
+
+ขอให้จิตของข้าพเจ้าสงบ สะอาด และเปิดรับอย่างบริสุทธิ์
+หากสิ่งใดควรรู้ ขอให้ไพ่เปิดเผย
+หากสิ่งใดควรระวัง ขอให้ไพ่เตือน
+หากสิ่งใดควรหลีกเลี่ยง ขอให้ไพ่ชี้แนะ
+ด้วยจิตศรัทธาและเคารพเป็นอย่างสูง”`}
+            </div>
+            {isDrawing ? (
+              <div className="mt-4">
+                <div className="h-2 w-full rounded bg-slate-200 overflow-hidden">
+                  <div className="h-2 bg-indigo-600 transition-all" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="text-xs text-slate-500 mt-2">กรุณารอสักครู่…</p>
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-2 mt-5">
+              <button className="px-3 py-2 rounded-md border" onClick={() => setShowConfirm(false)} disabled={isDrawing}>ยกเลิก</button>
+              <button className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50" onClick={handleDraw} disabled={isDrawing}>เปิดไพ่</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- Modal แสดงผลประวัติ --- */}
       {openView && (
