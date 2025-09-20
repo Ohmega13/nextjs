@@ -32,6 +32,21 @@ function extractTarotCards(payload: any): string[] {
   return payload.cards.map((c: any) => c.name ?? c);
 }
 
+// New helper function to get reading type label including tarot layout
+function getReadingTypeLabel(payload: any): string {
+  if (!payload) return '-';
+  if (payload.mode === 'tarot' || payload.mode === undefined) {
+    const layoutName = getTarotLayoutName(payload?.layout);
+    const baseLabel = {
+      'celtic_cross': 'แบบคลาสสิก 10 ใบ',
+      'three_card': 'ถามเรื่องเดียว 3 ใบ',
+      'horseshoe': 'ชั่งน้ำหนัก',
+    };
+    return baseLabel[payload.layout] ?? layoutName;
+  }
+  return '-';
+}
+
 export default function HistoryPage() {
   // role & target user
   const [role, setRole] = useState<Role>('member');
@@ -201,7 +216,6 @@ export default function HistoryPage() {
             <tr>
               <th className="px-2 py-2 text-left">วันที่</th>
               <th className="px-2 py-2 text-center">ประเภท</th>
-              <th className="px-2 py-2 text-center">รูปแบบ</th>
               <th className="px-2 py-2 text-left">หัวข้อ</th>
               <th className="px-2 py-2 text-left">บันทึก</th>
             </tr>
@@ -209,19 +223,19 @@ export default function HistoryPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
                   กำลังโหลด…
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-red-600">
+                <td colSpan={4} className="px-3 py-6 text-center text-red-600">
                   เกิดข้อผิดพลาด: {error}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
                   ไม่พบประวัติที่ตรงกับตัวกรอง
                 </td>
               </tr>
@@ -239,10 +253,9 @@ export default function HistoryPage() {
                     })}
                   </td>
                   <td className="px-2 py-2 text-center">
-                    {typeLabel[r.mode as keyof typeof typeLabel] ?? r.mode}
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    {r.mode === 'tarot' ? getTarotLayoutName(r.payload?.layout) : '-'}
+                    {r.mode === 'tarot'
+                      ? getReadingTypeLabel({ mode: r.mode, layout: r.payload?.layout })
+                      : typeLabel[r.mode as keyof typeof typeLabel] ?? r.mode}
                   </td>
                   <td className="px-2 py-2 truncate">{r.topic ?? '-'}</td>
                   <td className="px-2 py-2 truncate">{r.payload?.note ?? '-'}</td>
@@ -277,13 +290,11 @@ export default function HistoryPage() {
               })}
             </p>
             <p>
-              <strong>ประเภท:</strong> {typeLabel[openView.mode as keyof typeof typeLabel] ?? openView.mode}
+              <strong>ประเภท:</strong>{' '}
+              {openView.mode === 'tarot'
+                ? getReadingTypeLabel({ mode: openView.mode, layout: openView.payload?.layout })
+                : typeLabel[openView.mode as keyof typeof typeLabel] ?? openView.mode}
             </p>
-            {openView.mode === 'tarot' && (
-              <p>
-                <strong>รูปแบบ:</strong> {getTarotLayoutName(openView.payload?.layout)}
-              </p>
-            )}
             <p>
               <strong>หัวข้อ:</strong> {openView.topic ?? '-'}
             </p>
