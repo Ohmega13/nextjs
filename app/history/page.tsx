@@ -32,19 +32,16 @@ function extractTarotCards(payload: any): string[] {
   return payload.cards.map((c: any) => c.name ?? c);
 }
 
-// New helper function to get reading type label including tarot layout
+// New helper function to get reading type label (tarot) by inspecting payload
 function getReadingTypeLabel(payload: any): string {
-  if (!payload) return '-';
-  if (payload.mode === 'tarot' || payload.mode === undefined) {
-    const layoutName = getTarotLayoutName(payload?.layout);
-    const baseLabel = {
-      'celtic_cross': 'แบบคลาสสิก 10 ใบ',
-      'three_card': 'ถามเรื่องเดียว 3 ใบ',
-      'horseshoe': 'ชั่งน้ำหนัก',
-    };
-    return baseLabel[payload.layout] ?? layoutName;
-  }
-  return '-';
+  if (!payload) return 'ไพ่ยิปซี';
+  // โหมดเปรียบเทียบ: จะมี pairs เป็นอาร์เรย์ของ { option, card }
+  if (Array.isArray(payload.pairs)) return 'เปรียบเทียบ';
+  // คลาสสิก 10 ใบ: จะมี slots ยาว 10
+  if (Array.isArray(payload.slots) && payload.slots.length === 10) return 'แบบคลาสสิก 10 ใบ';
+  // ถามเรื่องเดียว 3 ใบ: มี cards ยาว 3
+  if (Array.isArray(payload.cards) && payload.cards.length === 3) return 'ถามเรื่องเดียว 3 ใบ';
+  return 'ไพ่ยิปซี';
 }
 
 export default function HistoryPage() {
@@ -254,8 +251,8 @@ export default function HistoryPage() {
                   </td>
                   <td className="px-2 py-2 text-center">
                     {r.mode === 'tarot'
-                      ? getReadingTypeLabel({ mode: r.mode, layout: r.payload?.layout })
-                      : typeLabel[r.mode as keyof typeof typeLabel] ?? r.mode}
+                      ? getReadingTypeLabel(r.payload)
+                      : (typeLabel[r.mode as keyof typeof typeLabel] ?? r.mode)}
                   </td>
                   <td className="px-2 py-2 truncate">{r.topic ?? '-'}</td>
                   <td className="px-2 py-2 truncate">{r.payload?.note ?? '-'}</td>
@@ -292,8 +289,8 @@ export default function HistoryPage() {
             <p>
               <strong>ประเภท:</strong>{' '}
               {openView.mode === 'tarot'
-                ? getReadingTypeLabel({ mode: openView.mode, layout: openView.payload?.layout })
-                : typeLabel[openView.mode as keyof typeof typeLabel] ?? openView.mode}
+                ? getReadingTypeLabel(openView.payload)
+                : (typeLabel[openView.mode as keyof typeof typeLabel] ?? openView.mode)}
             </p>
             <p>
               <strong>หัวข้อ:</strong> {openView.topic ?? '-'}
