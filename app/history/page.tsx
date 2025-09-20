@@ -16,6 +16,22 @@ type ReadingRow = {
   user_id: string;
 };
 
+// Helper function to map tarot layout code to name
+function getTarotLayoutName(layoutCode: string | undefined): string {
+  const layouts: Record<string, string> = {
+    'celtic_cross': 'เซลติกครอส',
+    'three_card': 'สามใบ',
+    'horseshoe': 'เกือกม้า',
+  };
+  return layoutCode ? layouts[layoutCode] ?? layoutCode : '-';
+}
+
+// Helper function to extract cards from payload
+function extractTarotCards(payload: any): string[] {
+  if (!payload || !payload.cards) return [];
+  return payload.cards.map((c: any) => c.name ?? c);
+}
+
 export default function HistoryPage() {
   // role & target user
   const [role, setRole] = useState<Role>('member');
@@ -30,6 +46,9 @@ export default function HistoryPage() {
   const [rows, setRows] = useState<ReadingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // popup state
+  const [openView, setOpenView] = useState<ReadingRow | null>(null);
 
   // detect role & default client id
   useEffect(() => {
@@ -85,6 +104,15 @@ export default function HistoryPage() {
       }
     })();
   }, [clientId, type, from, to]);
+
+  // Escape key closes popup
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenView(null);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const typeLabel = useMemo(
     () =>
@@ -173,6 +201,7 @@ export default function HistoryPage() {
             <tr>
               <th className="px-2 py-2 text-left">วันที่</th>
               <th className="px-2 py-2 text-center">ประเภท</th>
+              <th className="px-2 py-2 text-center">รูปแบบ</th>
               <th className="px-2 py-2 text-left">หัวข้อ</th>
               <th className="px-2 py-2 text-left">บันทึก</th>
             </tr>
@@ -180,25 +209,29 @@ export default function HistoryPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
                   กำลังโหลด…
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-red-600">
+                <td colSpan={5} className="px-3 py-6 text-center text-red-600">
                   เกิดข้อผิดพลาด: {error}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
                   ไม่พบประวัติที่ตรงกับตัวกรอง
                 </td>
               </tr>
             ) : (
               rows.map((r) => (
-                <tr key={r.id} className="border-t">
+                <tr
+                  key={r.id}
+                  className="border-t cursor-pointer hover:bg-slate-50"
+                  onClick={() => setOpenView(r)}
+                >
                   <td className="px-2 py-2">
                     {new Date(r.created_at).toLocaleString('th-TH', {
                       dateStyle: 'short',
@@ -207,6 +240,9 @@ export default function HistoryPage() {
                   </td>
                   <td className="px-2 py-2 text-center">
                     {typeLabel[r.mode as keyof typeof typeLabel] ?? r.mode}
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    {r.mode === 'tarot' ? getTarotLayoutName(r.payload?.layout) : '-'}
                   </td>
                   <td className="px-2 py-2 truncate">{r.topic ?? '-'}</td>
                   <td className="px-2 py-2 truncate">{r.payload?.note ?? '-'}</td>
@@ -220,6 +256,58 @@ export default function HistoryPage() {
       <p className="text-xs text-slate-500">
         * สมาชิกทั่วไปจะเห็นประวัติของตนเองเท่านั้น; แอดมินสามารถเลือกผู้ใช้เพื่อดูประวัติได้
       </p>
+
+      {/* Modal Popup for reading details */}
+      {openView && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative">
+            <button
+              onClick={() => setOpenView(null)}
+              className="absolute top-4 right-4 text-slate-600 hover:text-slate-900"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            <h2 className="text-xl font-semibold mb-4">รายละเอียดการดูดวง</h2>
+            <p>
+              <strong>วันที่:</strong>{' '}
+              {new Date(openView.created_at).toLocaleString('th-TH', {
+                dateStyle: 'full',
+                timeStyle: 'short',
+              })}
+            </p>
+            <p>
+              <strong>ประเภท:</strong> {typeLabel[openView.mode as keyof typeof typeLabel] ?? openView.mode}
+            </p>
+            {openView.mode === 'tarot' && (
+              <p>
+                <strong>รูปแบบ:</strong> {getTarotLayoutName(openView.payload?.layout)}
+              </p>
+            )}
+            <p>
+              <strong>หัวข้อ:</strong> {openView.topic ?? '-'}
+            </p>
+            {openView.mode === 'tarot' && (
+              <>
+                <p className="mt-4 font-semibold">ไพ่ที่เลือก:</p>
+                <ul className="list-disc list-inside mb-4">
+                  {extractTarotCards(openView.payload).map((card, i) => (
+                    <li key={i}>{card}</li>
+                  ))}
+                </ul>
+                <p>
+                  <strong>วิเคราะห์:</strong> {openView.payload?.analysis ?? '-'}
+                </p>
+              </>
+            )}
+            {openView.mode !== 'tarot' && (
+              <p className="mt-4">
+                <strong>บันทึก:</strong> {openView.payload?.note ?? '-'}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
