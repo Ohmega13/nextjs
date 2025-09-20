@@ -241,26 +241,25 @@ export default function HistoryPage() {
               <th className="px-2 py-2 text-left">วันที่</th>
               <th className="px-2 py-2 text-center">ประเภท</th>
               <th className="px-2 py-2 text-left">หัวข้อ</th>
-              <th className="px-2 py-2 text-left">บันทึก</th>
               {role === 'admin' && <th className="px-2 py-2 text-center w-28">จัดการ</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={role === 'admin' ? 5 : 4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={role === 'admin' ? 4 : 3} className="px-3 py-6 text-center text-slate-500">
                   กำลังโหลด…
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={role === 'admin' ? 5 : 4} className="px-3 py-6 text-center text-red-600">
+                <td colSpan={role === 'admin' ? 4 : 3} className="px-3 py-6 text-center text-red-600">
                   เกิดข้อผิดพลาด: {error}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={role === 'admin' ? 5 : 4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={role === 'admin' ? 4 : 3} className="px-3 py-6 text-center text-slate-500">
                   ไม่พบประวัติที่ตรงกับตัวกรอง
                 </td>
               </tr>
@@ -281,7 +280,6 @@ export default function HistoryPage() {
                     {getRowTypeLabel(r.mode, r.payload, typeLabel as any)}
                   </td>
                   <td className="px-2 py-2 truncate">{r.topic ?? '-'}</td>
-                  <td className="px-2 py-2 truncate">{r.payload?.note ?? r.payload?.analysis ?? '-'}</td>
                   {role === 'admin' && (
                     <td className="px-2 py-2">
                       <div
