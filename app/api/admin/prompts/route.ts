@@ -1,83 +1,90 @@
-// app/api/admin/prompts/route.ts
-import { NextResponse } from "next/server";
-import { cookies, headers } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 async function getSupabase() {
-  const cookieStore = cookies();
-  const hdrs = headers();
+  const cookieStore = await cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name: string) => cookieStore.get(name)?.value,
-        set(name, value, opts) {
-          cookieStore.set({ name, value, ...opts });
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        remove(name, opts) {
-          cookieStore.set({ name, value: "", ...opts, maxAge: 0 });
+        set(name: string, value: string, options?: any) {
+          cookieStore.set({ name, value, ...(options || {}) });
+        },
+        remove(name: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
-      headers: { "x-forwarded-host": hdrs.get("x-forwarded-host") ?? "" },
     }
   );
 }
 
-async function assertAdmin(supabase: any) {
+async function assertAdmin() {
+  const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false as const, status: 401, error: "UNAUTHENTICATED" };
-  const { data } = await supabase.rpc("is_admin", { uid: user.id });
-  if (!data) return { ok: false as const, status: 403, error: "FORBIDDEN" };
-  return { ok: true as const, user };
+  if (!user) throw new Response("UNAUTHENTICATED", { status: 401 });
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profile?.role !== "admin") {
+    throw new Response("FORBIDDEN", { status: 403 });
+  }
+  return supabase;
 }
 
-export async function GET(req: Request) {
-  const supabase = await getSupabase();
-  const guard = await assertAdmin(supabase);
-  if (!guard.ok) {
-    return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+// GET /api/admin/prompts?system=tarot|natal|palm
+export async function GET(req: NextRequest) {
+  try {
+    const supabase = await assertAdmin();
+    const { searchParams } = new URL(req.url);
+    const system = searchParams.get("system") as "tarot" | "natal" | "palm" | null;
+
+    let q = supabase.from("prompts").select("*").order("updated_at", { ascending: false });
+    if (system) q = q.eq("system", system);
+
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true, items: data });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_GET" }, { status: 500 });
   }
-
-  const { searchParams } = new URL(req.url);
-  const system = searchParams.get("system");
-
-  let query = supabase.from("prompts").select("*").order("updated_at", { ascending: false });
-  if (system) query = query.eq("system", system);
-
-  const { data, error } = await query;
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ ok: true, items: data });
 }
 
-export async function POST(req: Request) {
-  const supabase = await getSupabase();
-  const guard = await assertAdmin(supabase);
-  if (!guard.ok) {
-    return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+// POST create
+export async function POST(req: NextRequest) {
+  try {
+    const supabase = await assertAdmin();
+    const body = await req.json();
+
+    const { data, error } = await supabase
+      .from("prompts")
+      .insert({
+        key: body.key,
+        title: body.title,
+        system: body.system,                  // "tarot" | "natal" | "palm"
+        subtype: body.subtype ?? null,        // e.g. "threeCards" | "weighOptions" | "classic10" | "thai" | "western"
+        content: body.content,
+      })
+      .select("*")
+      .maybeSingle();
+
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true, item: data });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_POST" }, { status: 500 });
   }
-
-  const body = await req.json();
-
-  const { data, error } = await supabase
-    .from("prompts")
-    .insert({
-      key: body.key,
-      title: body.title,
-      system: body.system,
-      subtype: body.subtype ?? null,
-      content: body.content,
-      updated_by: guard.user.id,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ ok: true, item: data });
 }
+
+export const dynamic = "force-dynamic";

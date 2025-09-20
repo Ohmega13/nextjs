@@ -1,72 +1,103 @@
-// app/api/admin/prompts/[id]/route.ts
-import { NextResponse } from "next/server";
-import { cookies, headers } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
+// Next 15: cookies() เป็น async
 async function getSupabase() {
-  const cookieStore = cookies();
-  const hdrs = headers();
+  const cookieStore = await cookies();
+
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (name: string) => cookieStore.get(name)?.value,
-        set(name, value, opts) { cookieStore.set({ name, value, ...opts }); },
-        remove(name, opts) { cookieStore.set({ name, value: "", ...opts, maxAge: 0 }); },
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options?: any) {
+          // ใน Route Handler มีสิทธิ์ set cookie ได้
+          cookieStore.set({ name, value, ...(options || {}) });
+        },
+        remove(name: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
+        },
       },
-      headers: { "x-forwarded-host": hdrs.get("x-forwarded-host") ?? "" },
     }
   );
 }
 
-async function assertAdmin(supabase: any) {
+async function assertAdmin() {
+  const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false as const, status: 401 as const, error: "UNAUTHENTICATED" };
-  const { data } = await supabase.rpc("is_admin", { uid: user.id });
-  if (!data) return { ok: false as const, status: 403 as const, error: "FORBIDDEN" };
-  return { ok: true as const, user };
+  if (!user) throw new Response("UNAUTHENTICATED", { status: 401 });
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profile?.role !== "admin") {
+    throw new Response("FORBIDDEN", { status: 403 });
+  }
+  return supabase;
 }
 
-// IMPORTANT: don't type the 2nd arg strictly; Next 15 is picky here.
-export async function PUT(req: Request, ctx: any) {
-  const supabase = await getSupabase();
-  const guard = await assertAdmin(supabase);
-  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+// UPDATE one
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await assertAdmin();
+    const body = await req.json();
 
-  const id = ctx?.params?.id as string;
-  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+    const { data, error } = await supabase
+      .from("prompts")
+      .update({
+        key: body.key,
+        title: body.title,
+        system: body.system,
+        subtype: body.subtype ?? null,
+        content: body.content,
+      })
+      .eq("id", params.id)
+      .select("*")
+      .maybeSingle();
 
-  const body = await req.json();
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    }
 
-  const { data, error } = await supabase
-    .from("prompts")
-    .update({
-      key: body.key,
-      title: body.title,
-      system: body.system,
-      subtype: body.subtype ?? null,
-      content: body.content,
-      updated_by: guard.user.id,
-    })
-    .eq("id", id)
-    .select("*")
-    .single();
-
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true, item: data });
+    return NextResponse.json({ ok: true, item: data });
+  } catch (e: any) {
+    if (e instanceof Response) return e; // ส่ง status จาก assertAdmin
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_PUT" }, { status: 500 });
+  }
 }
 
-export async function DELETE(_req: Request, ctx: any) {
-  const supabase = await getSupabase();
-  const guard = await assertAdmin(supabase);
-  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
+// DELETE one
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await assertAdmin();
 
-  const id = ctx?.params?.id as string;
-  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+    const { error } = await supabase
+      .from("prompts")
+      .delete()
+      .eq("id", params.id);
 
-  const { error } = await supabase.from("prompts").delete().eq("id", id);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    }
 
-  return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_DELETE" }, { status: 500 });
+  }
 }
+
+export const dynamic = "force-dynamic";
