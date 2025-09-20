@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
-// สร้าง Supabase client ที่รองรับ Next 15 (cookies() เป็น async)
+// --- Supabase client (รองรับ Next 15: cookies/headers เป็น async) ---
 async function getSupabase() {
-  const c = await cookies();
-  const h = headers();
+  const cookieStore = await cookies();
+  const hdrs = await headers(); // ✅ ต้อง await
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,16 +13,17 @@ async function getSupabase() {
     {
       cookies: {
         get(name: string) {
-          return c.get(name)?.value;
+          return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, opts?: any) {
-          c.set({ name, value, ...opts });
+          cookieStore.set({ name, value, ...opts });
         },
         remove(name: string, opts?: any) {
-          c.set({ name, value: "", ...opts, maxAge: 0 });
+          cookieStore.set({ name, value: "", ...opts, maxAge: 0 });
         },
       },
-      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
+      // ไม่ใส่ก็ได้ แต่ถ้าจะส่งต่อ header ก็ต้อง await แล้วค่อย get
+      headers: { "x-forwarded-host": hdrs.get("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -41,7 +42,7 @@ async function requireAdmin() {
   return { supabase, isAdmin: profile?.role === "admin" };
 }
 
-// ✅ NOTE: context ต้องเป็น Promise ของ params ใน Next 15
+// ✅ Next 15: context.params เป็น Promise ต้อง await
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
@@ -50,8 +51,11 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const body = await req.json();
   const { key, title, system, subtype, content } = body as {
-    key: string; title: string; system: "tarot" | "natal" | "palm";
-    subtype: string | null; content: string;
+    key: string;
+    title: string;
+    system: "tarot" | "natal" | "palm";
+    subtype: string | null;
+    content: string;
   };
 
   const { error } = await supabase
