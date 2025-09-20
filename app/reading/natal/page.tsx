@@ -39,11 +39,15 @@ export default function NatalPage() {
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // --- NEW: baseline natal reading prerequisite ---
-  const [baseline, setBaseline] = useState<any | null>(null); // last/first natal reading
+  // --- NEW: baseline natal reading prerequisite (per-system) ---
+  const [baselineThai, setBaselineThai] = useState<any | null>(null);
+  const [baselineWestern, setBaselineWestern] = useState<any | null>(null);
+  const hasThai = !!baselineThai;
+  const hasWestern = !!baselineWestern;
+  const hasAnyBaseline = hasThai || hasWestern;
+  const baselineSelected = system === 'thai' ? baselineThai : baselineWestern;
   const [loadingBaseline, setLoadingBaseline] = useState(false);
   const [showBaseline, setShowBaseline] = useState(false);
-  const hasBaseline = !!baseline;
 
   // --- NEW: confirm & progress for baseline ---
   const [showConfirm, setShowConfirm] = useState(false);
@@ -174,24 +178,26 @@ export default function NatalPage() {
       } else if (role === 'member') {
         const { data: { user } } = await supabase.auth.getUser();
         targetUserId = user?.id ?? null;
-      } else {
-        targetUserId = null;
       }
-      if (!targetUserId) { setBaseline(null); return; }
+      if (!targetUserId) { setBaselineThai(null); setBaselineWestern(null); return; }
 
       setLoadingBaseline(true);
       try {
-        const { data, error } = await supabase
+        const q = supabase
           .from('readings')
           .select('id, created_at, mode, topic, payload, user_id')
           .eq('user_id', targetUserId)
           .eq('mode', 'natal')
-          .order('created_at', { ascending: false })
-          .limit(1);
+          .order('created_at', { ascending: false });
+        const { data, error } = await q;
         if (error) throw error;
-        setBaseline((data && data[0]) || null);
+        const thai = (data || []).find(r => r?.payload?.system === 'thai') || null;
+        const western = (data || []).find(r => r?.payload?.system === 'western') || null;
+        setBaselineThai(thai);
+        setBaselineWestern(western);
       } catch (e) {
-        setBaseline(null);
+        setBaselineThai(null);
+        setBaselineWestern(null);
       } finally {
         setLoadingBaseline(false);
       }
@@ -234,7 +240,7 @@ export default function NatalPage() {
         throw new Error(json?.error || 'ยังไม่สามารถสร้างพื้นดวงได้ในขณะนี้');
       }
 
-      // refresh baseline
+      // refresh baselines for both systems
       const { data: { user } } = await supabase.auth.getUser();
       const targetUserId = role === 'admin' ? (selectedClientId || user?.id || '') : (user?.id || '');
       const { data, error } = await supabase
@@ -242,9 +248,13 @@ export default function NatalPage() {
         .select('id, created_at, mode, topic, payload, user_id')
         .eq('user_id', targetUserId)
         .eq('mode', 'natal')
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (!error) setBaseline((data && data[0]) || null);
+        .order('created_at', { ascending: false });
+      if (!error) {
+        const thai = (data || []).find(r => r?.payload?.system === 'thai') || null;
+        const western = (data || []).find(r => r?.payload?.system === 'western') || null;
+        setBaselineThai(thai);
+        setBaselineWestern(western);
+      }
     } catch (e: any) {
       alert(e?.message || 'เกิดข้อผิดพลาดระหว่างสร้างพื้นดวง');
     } finally {
@@ -254,7 +264,7 @@ export default function NatalPage() {
 
   // --- NEW: ask follow-up based on existing baseline ---
   async function onAskFollowup() {
-    if (!hasBaseline) {
+    if (!hasAnyBaseline) {
       alert('โปรดดูพื้นดวงก่อน จากนั้นจึงพิมพ์คำถามเพิ่มเติมได้');
       return;
     }
@@ -389,23 +399,26 @@ export default function NatalPage() {
           {/* ขั้นตอนที่ 1: ต้องมีพื้นดวงก่อน */}
           <div className="rounded-lg border p-3 bg-slate-50">
             <div className="flex items-center justify-between">
-              <div className="text-sm">
-                {loadingBaseline ? 'กำลังตรวจสอบพื้นดวง…' : hasBaseline ? 'พบข้อมูลพื้นดวงก่อนหน้าแล้ว' : 'ยังไม่พบข้อมูลพื้นดวง'}
+              <div className="text-sm space-x-2">
+                {loadingBaseline ? (
+                  'กำลังตรวจสอบพื้นดวง…'
+                ) : (
+                  <>
+                    <span>สถานะพื้นดวง:</span>
+                    <span className={baselineSelected ? 'text-emerald-700' : 'text-slate-600'}>
+                      {system === 'thai' ? 'ไทย' : 'ตะวันตก'} — {baselineSelected ? 'พบแล้ว' : 'ยังไม่มี'}
+                    </span>
+                    <span className="ml-2 text-xs text-slate-500">(ไทย: {hasThai ? '✔' : '—'} / ตะวันตก: {hasWestern ? '✔' : '—'})</span>
+                  </>
+                )}
               </div>
               <div className="flex gap-2">
-                {!hasBaseline ? (
-                  <button
-                    onClick={() => setShowConfirm(true)}
-                    disabled={loadingBaseline || loading}
-                    className="rounded-md bg-indigo-600 text-white px-3 py-2 disabled:opacity-50"
-                  >
+                {!baselineSelected ? (
+                  <button onClick={() => setShowConfirm(true)} disabled={loadingBaseline || loading} className="rounded-md bg-indigo-600 text-white px-3 py-2 disabled:opacity-50">
                     ดูพื้นดวงครั้งแรก
                   </button>
                 ) : (
-                  <button
-                    onClick={() => setShowBaseline(true)}
-                    className="rounded-md border px-3 py-2 hover:bg-slate-100"
-                  >
+                  <button onClick={() => setShowBaseline(true)} className="rounded-md border px-3 py-2 hover:bg-slate-100">
                     ดูพื้นดวงของฉัน
                   </button>
                 )}
@@ -414,14 +427,14 @@ export default function NatalPage() {
           </div>
 
           {/* ขั้นตอนที่ 2: ถ้ามีพื้นดวงแล้วค่อยถามคำถาม */}
-          <div className={`${!hasBaseline ? 'opacity-60 pointer-events-none' : ''}`}>
+          <div className={`${!hasAnyBaseline ? 'opacity-60 pointer-events-none' : ''}`}>
             <label className="block text-sm text-slate-600">คำถามเพิ่มเติม (อ้างอิงจากพื้นดวง)</label>
             <input
               className="mt-1 w-full rounded-lg border-slate-300 h-11"
-              placeholder={hasBaseline ? 'พิมพ์สิ่งที่อยากถาม' : 'ต้องดูพื้นดวงก่อน จึงจะพิมพ์คำถามได้'}
+              placeholder={hasAnyBaseline ? 'พิมพ์สิ่งที่อยากถาม' : 'ต้องดูพื้นดวงก่อน จึงจะพิมพ์คำถามได้'}
               value={question}
               onChange={e => setQuestion(e.target.value)}
-              disabled={!hasBaseline}
+              disabled={!hasAnyBaseline}
             />
           </div>
 
@@ -429,7 +442,7 @@ export default function NatalPage() {
             <button
               onClick={onRead}
               className="w-full sm:w-auto rounded-lg bg-indigo-600 text-white px-4 py-2 disabled:opacity-50"
-              disabled={loading || !hasBaseline || asking}
+              disabled={loading || !hasAnyBaseline || asking}
             >{asking ? 'กำลังวิเคราะห์…' : 'ดูดวงอ้างอิงตามพื้นดวง'}</button>
           </div>
         </div>
@@ -489,7 +502,7 @@ export default function NatalPage() {
       )}
 
       {/* Modal: แสดงพื้นดวงที่เคยดูแล้ว */}
-      {showBaseline && baseline && (
+      {showBaseline && baselineSelected && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowBaseline(false)} />
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(800px,92vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-xl p-5">
@@ -500,15 +513,15 @@ export default function NatalPage() {
             <div className="text-sm space-y-3">
               <div className="grid grid-cols-[110px_1fr] gap-x-3">
                 <div className="text-slate-500">วันที่</div>
-                <div>{new Date(baseline.created_at).toLocaleString()}</div>
+                <div>{new Date(baselineSelected.created_at).toLocaleString()}</div>
                 <div className="text-slate-500">หัวข้อ</div>
-                <div>{baseline.topic ?? '-'}</div>
+                <div>{baselineSelected.topic ?? '-'}</div>
               </div>
-              {baseline.payload?.analysis && (
+              {baselineSelected.payload?.analysis && (
                 <div className="rounded-xl border p-3">
                   <div className="font-medium mb-1">คำอธิบายพื้นดวง</div>
                   <div className="whitespace-pre-wrap text-slate-700">
-                    {baseline.payload.analysis}
+                    {baselineSelected.payload.analysis}
                   </div>
                 </div>
               )}

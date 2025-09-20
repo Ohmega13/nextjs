@@ -44,6 +44,25 @@ function getReadingTypeLabel(payload: any): string {
   return 'ไพ่ยิปซี';
 }
 
+// Helper to render overall type label per row (including natal system)
+function getRowTypeLabel(
+  mode: string,
+  payload: any,
+  typeLabel: { tarot: string; palm: string; natal: string }
+) {
+  if (mode === 'tarot') return getReadingTypeLabel(payload);
+  if (mode === 'natal') {
+    const sys =
+      payload?.system === 'thai'
+        ? 'ไทย'
+        : payload?.system === 'western'
+        ? 'ตะวันตก'
+        : undefined;
+    return sys ? `${typeLabel.natal} (${sys})` : typeLabel.natal;
+  }
+  return (typeLabel as any)[mode] ?? mode;
+}
+
 export default function HistoryPage() {
   // role & target user
   const [role, setRole] = useState<Role>('member');
@@ -259,12 +278,10 @@ export default function HistoryPage() {
                     })}
                   </td>
                   <td className="px-2 py-2 text-center">
-                    {r.mode === 'tarot'
-                      ? getReadingTypeLabel(r.payload)
-                      : (typeLabel[r.mode as keyof typeof typeLabel] ?? r.mode)}
+                    {getRowTypeLabel(r.mode, r.payload, typeLabel as any)}
                   </td>
                   <td className="px-2 py-2 truncate">{r.topic ?? '-'}</td>
-                  <td className="px-2 py-2 truncate">{r.payload?.note ?? '-'}</td>
+                  <td className="px-2 py-2 truncate">{r.payload?.note ?? r.payload?.analysis ?? '-'}</td>
                   {role === 'admin' && (
                     <td className="px-2 py-2">
                       <div
@@ -338,9 +355,7 @@ export default function HistoryPage() {
               <div>{new Date(editTarget.created_at).toLocaleString()}</div>
               <div className="text-slate-500">ประเภท</div>
               <div>
-                {editTarget.mode === 'tarot'
-                  ? getReadingTypeLabel(editTarget.payload)
-                  : (typeLabel[editTarget.mode as keyof typeof typeLabel] ?? editTarget.mode)}
+                {getRowTypeLabel(editTarget.mode, editTarget.payload, typeLabel as any)}
               </div>
             </div>
 
@@ -424,9 +439,7 @@ export default function HistoryPage() {
             </p>
             <p>
               <strong>ประเภท:</strong>{' '}
-              {openView.mode === 'tarot'
-                ? getReadingTypeLabel(openView.payload)
-                : (typeLabel[openView.mode as keyof typeof typeLabel] ?? openView.mode)}
+              {getRowTypeLabel(openView.mode, openView.payload, typeLabel as any)}
             </p>
             <p>
               <strong>หัวข้อ:</strong> {openView.topic ?? '-'}
@@ -445,9 +458,24 @@ export default function HistoryPage() {
               </>
             )}
             {openView.mode !== 'tarot' && (
-              <p className="mt-4">
-                <strong>บันทึก:</strong> {openView.payload?.note ?? '-'}
-              </p>
+              <div className="mt-4 space-y-2">
+                {openView.mode === 'natal' && (
+                  <p className="text-sm text-slate-500">
+                    ระบบ:{' '}
+                    {openView?.payload?.system === 'thai'
+                      ? 'โหราศาสตร์ไทย'
+                      : openView?.payload?.system === 'western'
+                      ? 'โหราศาสตร์ตะวันตก'
+                      : '-'}
+                  </p>
+                )}
+                <p>
+                  <strong>
+                    {openView.mode === 'natal' ? 'ผลวิเคราะห์' : 'บันทึก'}:
+                  </strong>{' '}
+                  {openView.payload?.analysis ?? openView.payload?.note ?? '-'}
+                </p>
+              </div>
             )}
           </div>
         </div>
