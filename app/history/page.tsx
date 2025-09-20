@@ -62,6 +62,14 @@ export default function HistoryPage() {
   // popup state
   const [openView, setOpenView] = useState<ReadingRow | null>(null);
 
+  // --- admin edit/delete states ---
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editTarget, setEditTarget] = useState<ReadingRow | null>(null);
+  const [editTopic, setEditTopic] = useState('');
+  const [editAnalysis, setEditAnalysis] = useState('');
+
   // detect role & default client id
   useEffect(() => {
     (async () => {
@@ -215,24 +223,25 @@ export default function HistoryPage() {
               <th className="px-2 py-2 text-center">ประเภท</th>
               <th className="px-2 py-2 text-left">หัวข้อ</th>
               <th className="px-2 py-2 text-left">บันทึก</th>
+              {role === 'admin' && <th className="px-2 py-2 text-center w-28">จัดการ</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={role === 'admin' ? 5 : 4} className="px-3 py-6 text-center text-slate-500">
                   กำลังโหลด…
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-red-600">
+                <td colSpan={role === 'admin' ? 5 : 4} className="px-3 py-6 text-center text-red-600">
                   เกิดข้อผิดพลาด: {error}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={role === 'admin' ? 5 : 4} className="px-3 py-6 text-center text-slate-500">
                   ไม่พบประวัติที่ตรงกับตัวกรอง
                 </td>
               </tr>
@@ -256,6 +265,50 @@ export default function HistoryPage() {
                   </td>
                   <td className="px-2 py-2 truncate">{r.topic ?? '-'}</td>
                   <td className="px-2 py-2 truncate">{r.payload?.note ?? '-'}</td>
+                  {role === 'admin' && (
+                    <td className="px-2 py-2">
+                      <div
+                        className="flex items-center justify-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          className="px-2 py-1 rounded border text-xs hover:bg-slate-100"
+                          onClick={() => {
+                            setEditTarget(r);
+                            setEditTopic(r.topic ?? '');
+                            setEditAnalysis(
+                              r?.payload?.analysis ?? (r?.payload?.note ?? '')
+                            );
+                            setShowEdit(true);
+                          }}
+                        >
+                          แก้ไข
+                        </button>
+                        <button
+                          className="px-2 py-1 rounded border text-xs hover:bg-red-50 text-red-600 border-red-300 disabled:opacity-50"
+                          disabled={deletingId === r.id}
+                          onClick={async () => {
+                            if (!confirm('ยืนยันการลบรายการนี้?')) return;
+                            try {
+                              setDeletingId(r.id);
+                              const { error } = await supabase.from('readings').delete().eq('id', r.id);
+                              if (error) throw error;
+                              // remove from UI
+                              setRows((prev) => prev.filter((x) => x.id !== r.id));
+                              // close detail modal if it was this record
+                              setOpenView((ov) => (ov && ov.id === r.id ? null : ov));
+                            } catch (e: any) {
+                              alert(e?.message || 'ลบไม่สำเร็จ');
+                            } finally {
+                              setDeletingId(null);
+                            }
+                          }}
+                        >
+                          {deletingId === r.id ? 'กำลังลบ…' : 'ลบ'}
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
@@ -266,6 +319,89 @@ export default function HistoryPage() {
       <p className="text-xs text-slate-500">
         * ประวัติการดูดวงทั้งหมด
       </p>
+
+      {/* Modal: แก้ไขผลการดูดวง (admin) */}
+      {showEdit && editTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative">
+            <button
+              onClick={() => !savingEdit && setShowEdit(false)}
+              className="absolute top-4 right-4 text-slate-600 hover:text-slate-900"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            <h2 className="text-xl font-semibold mb-4">แก้ไขผลการดูดวง</h2>
+
+            <div className="grid grid-cols-[110px_1fr] gap-x-3 text-sm mb-4">
+              <div className="text-slate-500">วันที่</div>
+              <div>{new Date(editTarget.created_at).toLocaleString()}</div>
+              <div className="text-slate-500">ประเภท</div>
+              <div>
+                {editTarget.mode === 'tarot'
+                  ? getReadingTypeLabel(editTarget.payload)
+                  : (typeLabel[editTarget.mode as keyof typeof typeLabel] ?? editTarget.mode)}
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <label className="block text-slate-600 mb-1">หัวข้อ</label>
+              <input
+                className="w-full rounded border px-3 py-2"
+                value={editTopic}
+                onChange={(e) => setEditTopic(e.target.value)}
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-slate-600 mb-1">คำทำนาย / ผลวิเคราะห์</label>
+              <textarea
+                className="w-full rounded border px-3 py-2 min-h-[220px] whitespace-pre-wrap"
+                value={editAnalysis}
+                onChange={(e) => setEditAnalysis(e.target.value)}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-3 py-2 rounded-md border"
+                onClick={() => setShowEdit(false)}
+                disabled={savingEdit}
+              >
+                ยกเลิก
+              </button>
+              <button
+                className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50"
+                disabled={savingEdit}
+                onClick={async () => {
+                  try {
+                    setSavingEdit(true);
+                    const newPayload = { ...(editTarget.payload || {}), analysis: editAnalysis };
+                    const { data, error } = await supabase
+                      .from('readings')
+                      .update({ topic: editTopic, payload: newPayload })
+                      .eq('id', editTarget.id)
+                      .select('id, created_at, mode, topic, payload, user_id')
+                      .single();
+                    if (error) throw error;
+                    // update list
+                    setRows((prev) => prev.map((x) => (x.id === editTarget.id ? (data as ReadingRow) : x)));
+                    // update detail modal if showing same record
+                    setOpenView((ov) => (ov && ov.id === editTarget.id ? (data as ReadingRow) : ov));
+                    setShowEdit(false);
+                  } catch (e: any) {
+                    alert(e?.message || 'บันทึกไม่สำเร็จ');
+                  } finally {
+                    setSavingEdit(false);
+                  }
+                }}
+              >
+                {savingEdit ? 'กำลังบันทึก…' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Popup for reading details */}
       {openView && (
