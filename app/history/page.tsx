@@ -264,7 +264,7 @@ export default function HistoryPage() {
       </div>
 
       <p className="text-xs text-slate-500">
-        * สมาชิกทั่วไปจะเห็นประวัติของตนเองเท่านั้น; แอดมินสามารถเลือกผู้ใช้เพื่อดูประวัติได้
+        * ประวัติการดูดวงทั้งหมด
       </p>
 
       {/* Modal Popup for reading details */}
