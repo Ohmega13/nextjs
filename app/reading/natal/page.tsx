@@ -45,10 +45,28 @@ export default function NatalPage() {
   const [showBaseline, setShowBaseline] = useState(false);
   const hasBaseline = !!baseline;
 
+  // --- NEW: confirm & progress for baseline ---
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+
   // --- NEW: follow-up ask result modal ---
   const [asking, setAsking] = useState(false);
   const [followup, setFollowup] = useState<{ created_at?: string; topic?: string; analysis?: string } | null>(null);
   const [showFollowup, setShowFollowup] = useState(false);
+  // Animate progress bar for baseline generation
+  useEffect(() => {
+    let t: any;
+    if (isGenerating) {
+      setProgress(8);
+      t = setInterval(() => {
+        setProgress((p) => (p < 92 ? p + Math.random() * 7 : p));
+      }, 300);
+    } else {
+      setProgress(0);
+    }
+    return () => clearInterval(t);
+  }, [isGenerating]);
 
   // seed role + profile(s)
   useEffect(() => {
@@ -188,18 +206,17 @@ export default function NatalPage() {
   // --- NEW: first-time baseline generation ---
   async function onBaselineInit() {
     try {
-      // attach access token for RLS
       const { data: { session } } = await supabase.auth.getSession();
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
-      // validate minimal profile for baseline
       if (!birthDate || !birthPlace) {
         alert('กรุณากรอก “วันเกิด” และ “สถานที่เกิด” ในโปรไฟล์ให้ครบก่อนเริ่มดูพื้นดวง');
         return;
       }
+      const targetUserIdForApi = role === 'admin' && selectedClientId ? selectedClientId : undefined;
       const body = {
-        system, // 'thai' | 'western'
+        system,
         action: 'init-baseline',
         profile: {
           full_name: ([firstName, lastName].filter(Boolean).join(' ') || '').trim(),
@@ -207,16 +224,16 @@ export default function NatalPage() {
           birth_time: birthTime || '',
           birth_place: birthPlace || '',
         },
-        // server will infer target user from auth; admin case can optionally pass selectedClientId in future
+        ...(targetUserIdForApi ? { targetUserId: targetUserIdForApi } : {}),
       };
 
+      setLoadingBaseline(true);
       const res = await fetch('/api/natal', { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!res.ok) {
-        // fallback UI if API not implemented yet
-        const txt = await res.text().catch(() => '');
-        alert('ยังไม่สามารถสร้างพื้นดวงได้ในขณะนี้\n' + (txt || 'API /api/natal ยังไม่พร้อม'));
-        return;
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || 'ยังไม่สามารถสร้างพื้นดวงได้ในขณะนี้');
       }
+
       // refresh baseline
       const { data: { user } } = await supabase.auth.getUser();
       const targetUserId = role === 'admin' ? (selectedClientId || user?.id || '') : (user?.id || '');
@@ -228,8 +245,10 @@ export default function NatalPage() {
         .order('created_at', { ascending: false })
         .limit(1);
       if (!error) setBaseline((data && data[0]) || null);
-    } catch (e) {
-      // noop
+    } catch (e: any) {
+      alert(e?.message || 'เกิดข้อผิดพลาดระหว่างสร้างพื้นดวง');
+    } finally {
+      setLoadingBaseline(false);
     }
   }
 
@@ -255,6 +274,7 @@ export default function NatalPage() {
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
+      const targetUserIdForApi = role === 'admin' && selectedClientId ? selectedClientId : undefined;
       const body = {
         system,
         action: 'ask-followup',
@@ -265,6 +285,7 @@ export default function NatalPage() {
           birth_time: birthTime || '',
           birth_place: birthPlace || '',
         },
+        ...(targetUserIdForApi ? { targetUserId: targetUserIdForApi } : {}),
       };
 
       const res = await fetch('/api/natal', { method: 'POST', headers, body: JSON.stringify(body) });
@@ -356,6 +377,14 @@ export default function NatalPage() {
               className={`rounded-lg px-4 py-2 border ${system==='western' ? 'bg-indigo-50 border-indigo-500' : 'border-slate-300'}`}
             >ตะวันตก</button>
           </div>
+          <div className="rounded-lg border p-3 bg-white/60 text-sm">
+            <div className="font-medium mb-1">ความแตกต่างแบบย่อ: โหราศาสตร์ไทย vs ตะวันตก</div>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><span className="font-medium">ไทย</span>: เน้นภพ (ลัคนา/ภพลาภะ/กัมมะ ฯลฯ), ระบบมหาทักษา/ตรีวัย/จักรฤกษ์ และการพิจารณาดาวเกษตร-เจ้าเรือน</li>
+              <li><span className="font-medium">ตะวันตก</span>: เน้น Sun–Moon–Rising, Houses 1–12, Aspects, Nodes และวงรอบใหญ่เช่น Saturn Return</li>
+              <li>ทั้งสองแนวทางให้ภาพรวมชีวิตต่างมุมมอง เลือกแบบที่คุณคุ้นเคยหรืออยากลองศึกษามุมใหม่</li>
+            </ul>
+          </div>
 
           {/* ขั้นตอนที่ 1: ต้องมีพื้นดวงก่อน */}
           <div className="rounded-lg border p-3 bg-slate-50">
@@ -366,7 +395,7 @@ export default function NatalPage() {
               <div className="flex gap-2">
                 {!hasBaseline ? (
                   <button
-                    onClick={onBaselineInit}
+                    onClick={() => setShowConfirm(true)}
                     disabled={loadingBaseline || loading}
                     className="rounded-md bg-indigo-600 text-white px-3 py-2 disabled:opacity-50"
                   >
@@ -405,6 +434,59 @@ export default function NatalPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal: ยืนยันเริ่มดูพื้นดวง */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => !isGenerating && setShowConfirm(false)} />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(720px,90vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-xl p-5">
+            <h3 className="text-lg font-semibold mb-3">ยืนยันการดูพื้นดวง</h3>
+            <div className="grid grid-cols-[130px_1fr] gap-x-3 text-sm mb-3">
+              <div className="text-slate-500">ระบบ</div>
+              <div>{system === 'thai' ? 'โหราศาสตร์ไทย' : 'โหราศาสตร์ตะวันตก'}</div>
+              <div className="text-slate-500">ชื่อ-นามสกุล</div>
+              <div>{fullName}</div>
+              <div className="text-slate-500">วันเดือนปีเกิด</div>
+              <div>{birthDate || '-'}</div>
+              <div className="text-slate-500">เวลาเกิด</div>
+              <div>{birthTime || '-'}</div>
+              <div className="text-slate-500">สถานที่เกิด</div>
+              <div>{birthPlace || '-'}</div>
+            </div>
+            {isGenerating ? (
+              <div className="mt-2">
+                <div className="h-2 w-full rounded bg-slate-200 overflow-hidden">
+                  <div className="h-2 bg-indigo-600 transition-all" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="text-xs text-slate-500 mt-2">กรุณารอสักครู่…</p>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-600 mb-1">
+                ตรวจสอบข้อมูลให้ถูกต้องก่อนเริ่มระบบวิเคราะห์พื้นดวง
+              </div>
+            )}
+            <div className="flex justify-end gap-2 mt-4">
+              <button className="px-3 py-2 rounded-md border" onClick={() => setShowConfirm(false)} disabled={isGenerating}>ยกเลิก</button>
+              <button
+                className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50"
+                onClick={async () => {
+                  try {
+                    setIsGenerating(true);
+                    await onBaselineInit();
+                    setProgress(100);
+                    setTimeout(() => setShowConfirm(false), 400);
+                  } finally {
+                    setIsGenerating(false);
+                  }
+                }}
+                disabled={isGenerating}
+              >
+                เริ่มดูพื้นดวง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: แสดงพื้นดวงที่เคยดูแล้ว */}
       {showBaseline && baseline && (
