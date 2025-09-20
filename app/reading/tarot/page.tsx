@@ -10,7 +10,9 @@ type ReadingType = '3cards' | 'weigh' | 'celtic';
 type CardPick = { name: string; reversed: boolean };
 type ReadingRow = { id: string; created_at: string; topic: string | null; payload: any };
 
-// แปลง payload เป็นชื่อประเภทการดูไพ่ เพื่อโชว์ในประวัติ
+// --- helpers ---------------------------------------------------------------
+
+// แปลง payload → ชื่อประเภทการดู
 function getReadingTypeLabel(payload: any): string {
   if (!payload) return 'ไพ่ยิปซี';
   if (Array.isArray(payload.pairs)) return 'เปรียบเทียบ/ชั่งน้ำหนัก (1 ใบ/ตัวเลือก)';
@@ -19,18 +21,16 @@ function getReadingTypeLabel(payload: any): string {
   return 'ไพ่ยิปซี';
 }
 
-const FULL_DECK: string[] = [
-  'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
-  'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
-  'Wheel of Fortune','Justice','The Hanged Man','Death','Temperance',
-  'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World',
-];
+// ดึงชุดไพ่จาก payload (รองรับทั้ง 3 โหมด)
+function getCardsFromPayload(p: any): CardPick[] {
+  if (!p) return [];
+  if (Array.isArray(p.cards)) return p.cards as CardPick[];
+  if (Array.isArray(p.pairs)) return (p.pairs as any[]).map(x => x.card as CardPick);
+  if (Array.isArray(p.slots)) return (p.slots as any[]).map(x => x.card as CardPick);
+  return [];
+}
 
-// ตำแหน่งแบบคลาสสิก 10 ใบ
-// (Deleted CELTIC_SLOTS)
-
-// สุ่มไพ่แบบไม่ซ้ำ
-// (Deleted pickCards)
+// --------------------------------------------------------------------------
 
 export default function TarotReadingPage() {
   const [role, setRole] = useState<'admin' | 'member'>('member');
@@ -50,6 +50,18 @@ export default function TarotReadingPage() {
 
   // ตัวเลือกสำหรับโหมดชั่งน้ำหนัก (2–3 ตัวเลือก)
   const [options, setOptions] = useState<string[]>(['', '', '']);
+
+  // <<< NEW: modal state สำหรับดูประวัติแบบป๊อปอัป >>>
+  const [openView, setOpenView] = useState<ReadingRow | null>(null);
+
+  // ปิดโมดัลด้วย ESC
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenView(null);
+    }
+    if (openView) window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openView]);
 
   function updateOption(i: number, v: string) {
     setOptions(prev => prev.map((x, idx) => (idx === i ? v : x)));
@@ -146,7 +158,7 @@ export default function TarotReadingPage() {
     })();
   }, [role, clientId]);
 
-  // (ตัวอย่าง) โหลดประวัติการดูไพ่ของ user เดียวกัน
+  // โหลดประวัติการดูไพ่ของ user เดียวกัน
   useEffect(() => {
     (async () => {
       setLoadingHistory(true);
@@ -178,9 +190,6 @@ export default function TarotReadingPage() {
     })();
   }, [role, clientId]);
 
-  // ฟังก์ชันสุ่มไพ่ (เดิมของคุณ)
-  // (Deleted drawCards)
-
   return (
     <PermissionGate requirePerms={['tarot']}>
       <div className="max-w-5xl mx-auto p-4 space-y-6">
@@ -204,8 +213,6 @@ export default function TarotReadingPage() {
               <div>ชื่อ-นามสกุล: {profile.first_name ?? '-'} {profile.last_name ?? ''}</div>
               <div>วัน/เดือน/ปี เกิด: {profile.dob ?? '-'}</div>
               <div>เวลาเกิด: {profile.birth_time ?? '-'}</div>
-              {/* Tarot ไม่ได้ใช้สถานที่เกิดก็ได้ ถ้าจะโชว์ก็เพิ่มบรรทัดนี้ */}
-              {/* <div>สถานที่เกิด: {profile.birth_place ?? '-'}</div> */}
             </div>
           ) : (
             <div className="text-sm text-slate-500">ยังไม่มีข้อมูล</div>
@@ -265,7 +272,9 @@ export default function TarotReadingPage() {
                   />
                 ))}
               </div>
-              <p className="text-sm text-slate-500 mt-1">อย่างน้อย 2 ตัวเลือก ระบบจะเปิดไพ่ 1 ใบต่อ 1 ตัวเลือก แล้วสรุปว่า &quot;ควรเลือกอันไหน เพราะอะไร&quot;</p>
+              <p className="text-sm text-slate-500 mt-1">
+                อย่างน้อย 2 ตัวเลือก ระบบจะเปิดไพ่ 1 ใบต่อ 1 ตัวเลือก แล้วสรุปว่า &quot;ควรเลือกอันไหน เพราะอะไร&quot;
+              </p>
             </div>
           )}
 
@@ -317,7 +326,11 @@ export default function TarotReadingPage() {
           ) : history.length ? (
             <ul className="text-sm space-y-2">
               {history.map(h => (
-                <li key={h.id} className="border rounded-md p-2">
+                <li
+                  key={h.id}
+                  className="border rounded-md p-2 cursor-pointer hover:bg-slate-50"
+                  onClick={() => setOpenView(h)}   // <<< NEW: เปิดป๊อปอัป
+                >
                   <div className="text-slate-600">{new Date(h.created_at).toLocaleString()}</div>
                   <div>ประเภท: {getReadingTypeLabel(h.payload)}</div>
                   <div>หัวข้อ: {h.topic ?? '-'}</div>
@@ -329,6 +342,57 @@ export default function TarotReadingPage() {
           )}
         </div>
       </div>
+
+      {/* --- Modal แสดงผลประวัติ --- */}
+      {openView && (
+        <div className="fixed inset-0 z-50">
+          {/* backdrop */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setOpenView(null)} />
+          {/* dialog */}
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
+                          w-[min(720px,90vw)] max-h-[85vh] overflow-auto
+                          bg-white rounded-2xl shadow-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold">ผลการดูดวง</h3>
+              <button
+                className="px-2 py-1 rounded-md border hover:bg-slate-50"
+                onClick={() => setOpenView(null)}
+              >
+                ปิด
+              </button>
+            </div>
+
+            <div className="text-sm space-y-3">
+              <div className="grid grid-cols-[110px_1fr] gap-x-3">
+                <div className="text-slate-500">วันที่</div>
+                <div>{new Date(openView.created_at).toLocaleString()}</div>
+
+                <div className="text-slate-500">ประเภท</div>
+                <div>{getReadingTypeLabel(openView.payload)}</div>
+
+                <div className="text-slate-500">หัวข้อ</div>
+                <div>{openView.topic ?? '-'}</div>
+
+                <div className="text-slate-500">ไพ่</div>
+                <div>
+                  {getCardsFromPayload(openView.payload)
+                    .map(c => `${c.name}${c.reversed ? ' (กลับหัว)' : ''}`)
+                    .join(', ')}
+                </div>
+              </div>
+
+              {openView.payload?.analysis && (
+                <div className="rounded-xl border p-3">
+                  <div className="font-medium mb-1">คำทำนาย</div>
+                  <div className="whitespace-pre-wrap text-slate-700">
+                    {openView.payload.analysis}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </PermissionGate>
   );
 }
