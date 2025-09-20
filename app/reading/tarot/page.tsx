@@ -10,6 +10,15 @@ type ReadingType = '3cards' | 'weigh' | 'celtic';
 type CardPick = { name: string; reversed: boolean };
 type ReadingRow = { id: string; created_at: string; topic: string | null; payload: any };
 
+// แปลง payload เป็นชื่อประเภทการดูไพ่ เพื่อโชว์ในประวัติ
+function getReadingTypeLabel(payload: any): string {
+  if (!payload) return 'ไพ่ยิปซี';
+  if (Array.isArray(payload.pairs)) return 'เปรียบเทียบ/ชั่งน้ำหนัก (1 ใบ/ตัวเลือก)';
+  if (Array.isArray(payload.slots) && payload.slots.length === 10) return 'แบบคลาสสิก 10 ใบ';
+  if (Array.isArray(payload.cards) && payload.cards.length === 3) return 'ถามเรื่องเดียว 3 ใบ';
+  return 'ไพ่ยิปซี';
+}
+
 const FULL_DECK: string[] = [
   'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
   'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
@@ -310,6 +319,7 @@ export default function TarotReadingPage() {
               {history.map(h => (
                 <li key={h.id} className="border rounded-md p-2">
                   <div className="text-slate-600">{new Date(h.created_at).toLocaleString()}</div>
+                  <div>ประเภท: {getReadingTypeLabel(h.payload)}</div>
                   <div>หัวข้อ: {h.topic ?? '-'}</div>
                 </li>
               ))}
