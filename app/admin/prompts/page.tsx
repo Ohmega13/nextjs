@@ -1,8 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
+import { useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 
 type PromptRow = {
   id: string;
@@ -14,34 +13,40 @@ type PromptRow = {
   updated_at: string;
 };
 
-async function getSupabase() {
-  const c = cookies(); const h = headers();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (n) => c.get(n)?.value,
-        set(n, v, o) { c.set({ name: n, value: v, ...o }); },
-        remove(n, o) { c.set({ name: n, value: "", ...o, maxAge: 0 }); },
-      },
-      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
-    }
-  );
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-export default async function AdminPromptsPage() {
-  const supabase = await getSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (profile?.role !== "admin") redirect("/");
+export default function AdminPromptsPage() {
+  const router = useRouter();
+  const [checked, setChecked] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // 🔽 Render UI ของ CRUD Prompts
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/");
+        return;
+      }
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (error || data?.role !== "admin") {
+        router.replace("/");
+        return;
+      }
+      setIsAdmin(true);
+      setChecked(true);
+    })();
+  }, [router]);
+
+  if (!checked) return <div className="p-6">กำลังตรวจสอบสิทธิ์...</div>;
+  if (!isAdmin) return null;
+
   return <PromptManager />;
 }
 
