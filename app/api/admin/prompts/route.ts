@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 
 /**
- * Create a Supabase server client using Next 15 cookie/header adapters.
- * NOTE: in Next 15 both cookies() and headers() are async (return Promises),
- * so we must await them before wiring to createServerClient.
+ * Supabase server client for API routes.
+ * Works across Next 14/15 where cookies() may be sync/async.
  */
 async function getSupabase() {
-  const cookieStore = await cookies();
-  const h = await headers();
+  const cookieStore: any = await (cookies() as any);
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -25,7 +23,6 @@ async function getSupabase() {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
-      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -33,7 +30,9 @@ async function getSupabase() {
 /** Guard: must be logged-in admin */
 async function assertAdmin() {
   const supabase = await getSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) throw new Response("UNAUTHENTICATED", { status: 401 });
 
   const { data: profile, error } = await supabase
@@ -47,14 +46,14 @@ async function assertAdmin() {
   return supabase;
 }
 
-type Row = {
+// Table shape (no key/title columns on DB)
+interface Row {
   id: string;
   system: "tarot" | "natal" | "palm";
   subtype: string | null;
   content: string;
   updated_at: string;
-  // table does NOT have key/title, so we synthesize them for the UI
-};
+}
 
 function synthesizeKey(r: Pick<Row, "system" | "subtype">) {
   return `${r.system}_${r.subtype || "default"}`;
@@ -76,21 +75,18 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = await assertAdmin();
     const { searchParams } = new URL(req.url);
-    const system = searchParams.get("system") as "tarot" | "natal" | "palm" | null;
+    const system = searchParams.get("system") as Row["system"] | null;
 
     let q = supabase.from("prompts").select("*").order("updated_at", { ascending: false });
     if (system) q = q.eq("system", system);
     const { data, error } = await q;
-
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
-    // Synthesize key/title for frontend compatibility
     const items = (data || []).map((r: Row) => ({
       ...r,
       key: synthesizeKey(r),
       title: synthesizeTitle(r),
     }));
-
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
     if (e instanceof Response) return e;
@@ -98,15 +94,15 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST create (table has no key/title columns; accept and ignore them)
+// POST create (DB has no key/title; accept and ignore them)
 export async function POST(req: NextRequest) {
   try {
     const supabase = await assertAdmin();
     const body = await req.json();
 
-    const payload = {
-      system: body.system as Row["system"],            // "tarot" | "natal" | "palm"
-      subtype: (body.subtype ?? null) as string | null, // e.g. "threeCards" | "weighOptions" | "classic10" | "thai" | "western"
+    const payload: Pick<Row, "system" | "subtype" | "content"> = {
+      system: body.system as Row["system"],
+      subtype: (body.subtype ?? null) as string | null,
       content: String(body.content || ""),
     };
 
@@ -118,13 +114,7 @@ export async function POST(req: NextRequest) {
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
-    // Return synthesized key/title for UI
-    const item = {
-      ...(data as Row),
-      key: synthesizeKey(data as Row),
-      title: synthesizeTitle(data as Row),
-    };
-
+    const item = { ...(data as Row), key: synthesizeKey(data as Row), title: synthesizeTitle(data as Row) };
     return NextResponse.json({ ok: true, item });
   } catch (e: any) {
     if (e instanceof Response) return e;
@@ -133,3 +123,4 @@ export async function POST(req: NextRequest) {
 }
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";

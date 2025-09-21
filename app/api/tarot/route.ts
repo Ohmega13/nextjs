@@ -94,36 +94,41 @@ function renderTemplate(tpl: string, vars: Record<string, string>) {
   return tpl.replace(/{{\s*(\w+)\s*}}/g, (_, key) => vars[key] ?? "");
 }
 
-async function fetchPromptContent(supabase: any, key: string): Promise<string | null> {
+async function fetchPromptContentBySystem(
+  supabase: any,
+  system: string,
+  subtype: string
+): Promise<string | null> {
   const { data, error } = await supabase
-    .from("public.prompts")
+    .from("prompts")
     .select("content")
-    .eq("key", key)
+    .eq("system", system)
+    .eq("subtype", subtype)
     .maybeSingle();
   if (error || !data) return null;
   return data.content ?? null;
 }
 
-function promptKeyForTarot(mode: TarotMode): string {
-  switch (mode) {
-    case "threeCards": return "tarot_threeCards";
-    case "weighOptions": return "tarot_weighOptions";
-    case "classic10": return "tarot_classic10";
-  }
-}
-
 // --- Supabase client helper ---
 function getSupabase() {
+  const cookieStore = cookies();
+  const h = headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookies,
-      headers,
-      cookieOptions: {
-        // Forward x-forwarded-host header
-        forwardHeaders: ["x-forwarded-host"],
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options?: any) {
+          cookieStore.set({ name, value, ...(options || {}) });
+        },
+        remove(name: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
+        },
       },
+      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -190,9 +195,10 @@ export async function POST(req: NextRequest) {
       topic = null;
     }
 
-    // Build prompt with optional DB template fallback to old builders
-    const key = promptKeyForTarot(mode);
-    const dbContent = await fetchPromptContent(supabase, key);
+    // ----- build prompt: prefer DB template (admin-editable), fallback to static builders
+    const subtype = mode as string; // threeCards | weighOptions | classic10
+    const dbContent = await fetchPromptContentBySystem(supabase, "tarot", subtype);
+
     const vars = {
       full_name: userBrief.fullName,
       dob: userBrief.birthDate,
@@ -202,10 +208,16 @@ export async function POST(req: NextRequest) {
       cards: (payload.cards?.map((c: CardPick) => c.name + (c.reversed ? " (กลับหัว)" : "")).join(", ") || ""),
       slots_text: (payload.slots ? payload.slots.map((s: any) => `${s.pos}. ${s.label}: ${s.card.name}${s.card.reversed ? " (กลับหัว)" : ""}`).join("\n") : ""),
     };
+
     if (dbContent) {
-      prompt = renderTemplate(dbContent, vars);
+      // support both {{slots_text}} and inline lists in templates
+      let t = dbContent;
+      if (t.includes("{{slots_text}}") && vars.slots_text) {
+        t = t.replace("{{slots_text}}", vars.slots_text);
+      }
+      prompt = renderTemplate(t, vars);
     } else {
-      // fallback to old builders
+      // fallback to static prompt builders
       if (mode === "threeCards") {
         prompt = buildThreeCardsPrompt(userBrief, topic ?? "", payload.cards);
       } else if (mode === "weighOptions") {
