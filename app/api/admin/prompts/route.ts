@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 /**
- * Create a Supabase server client using Next 15 cookie adapter.
- * NOTE: cookies() in Next 15 is synchronous (do NOT await).
+ * Create a Supabase server client using Next 15 cookie/header adapters.
+ * NOTE: in Next 15 both cookies() and headers() are async (return Promises),
+ * so we must await them before wiring to createServerClient.
  */
-function getSupabase() {
-  const cookieStore = cookies(); // no await in Next 15
+async function getSupabase() {
+  const cookieStore = await cookies();
+  const h = await headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -23,13 +25,14 @@ function getSupabase() {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
+      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
     }
   );
 }
 
 /** Guard: must be logged-in admin */
 async function assertAdmin() {
-  const supabase = getSupabase();
+  const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Response("UNAUTHENTICATED", { status: 401 });
 
