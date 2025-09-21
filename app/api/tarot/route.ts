@@ -8,6 +8,13 @@ import OpenAI from "openai";
 type TarotMode = "threeCards" | "weighOptions" | "classic10";
 type CardPick = { name: string; reversed: boolean };
 
+type ProfileRow = {
+  full_name: string | null;
+  birth_date: string | null;
+  birth_time: string | null;
+  role?: string | null;
+};
+
 const FULL_DECK: string[] = [
   "The Fool","The Magician","The High Priestess","The Empress","The Emperor",
   "The Hierophant","The Lovers","The Chariot","Strength","The Hermit",
@@ -109,28 +116,13 @@ async function fetchPromptContentBySystem(
   return data.content ?? null;
 }
 
-// --- Supabase client helper ---
+// --- Supabase client helper (Next 15) ---
 function getSupabase() {
-  // In Next.js 15, cookies() / headers() are synchronous. Do NOT await them.
-  const cookieStore = cookies();
-  const h = headers();
+  // ส่งตัวช่วยของ Next ตรง ๆ (ไม่ต้อง wrap)
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options || {}) });
-        },
-        remove(name: string, options?: any) {
-          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
-        },
-      },
-      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
-    }
+    { cookies, headers }
   );
 }
 
@@ -140,19 +132,30 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = getSupabase();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // auth ผู้เรียก
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
 
-    // ดึงโปรไฟล์เพื่อประกอบ prompt (ถ้าไม่มีให้ใส่ค่าเริ่มต้น)
+    // โหลดโปรไฟล์ผู้เรียกเพื่อดู role
+    const { data: meProfile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    // รองรับแอดมินทำรายการแทนลูกดวงผ่าน header x-ddt-target-user
+    const targetHeader = req.headers.get("x-ddt-target-user");
+    const isAdmin = meProfile?.role === "admin";
+    const targetUserId = isAdmin && targetHeader ? targetHeader : user.id;
+
+    // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
       .from("profiles")
       .select("full_name, birth_date, birth_time")
-      .eq("user_id", user.id)
-      .single();
+      .eq("user_id", targetUserId)
+      .maybeSingle();
 
     const userBrief: UserBrief = {
       fullName: profile?.full_name ?? "ไม่ระบุชื่อ",
@@ -184,7 +187,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "AT_LEAST_TWO_OPTIONS" }, { status: 400 });
       }
       const _opts = options.slice(0, 3);
-      const cards = pickCards(Math.max(2, _opts.length)); // 1 ใบ/ตัวเลือก (อย่างน้อย 2)
+      const cards = pickCards(Math.max(2, _opts.length));
       const pairs = _opts.map((option: string, i: number) => ({ option, card: cards[i] }));
       payload = { ...payload, options: _opts, pairs };
     }
@@ -200,25 +203,44 @@ export async function POST(req: NextRequest) {
     const subtype = mode as string; // threeCards | weighOptions | classic10
     const dbContent = await fetchPromptContentBySystem(supabase, "tarot", subtype);
 
+    const cardsText = (() => {
+      if (mode === "threeCards") {
+        return (payload.cards as CardPick[]).map(c => face(c)).join(", ");
+      }
+      if (mode === "weighOptions") {
+        return (payload.pairs as { option: string; card: CardPick }[])
+          .map(p => `${p.option}: ${face(p.card)}`)
+          .join(" | ");
+      }
+      if (mode === "classic10") {
+        return (payload.slots as { pos: number; label: string; card: CardPick }[])
+          .map(s => `${s.pos}.${s.label}: ${face(s.card)}`)
+          .join(" | ");
+      }
+      return "";
+    })();
+
     const vars = {
       full_name: userBrief.fullName,
       dob: userBrief.birthDate,
       birth_time: userBrief.birthTime ?? "",
       question: topic ?? "",
       options: (payload.options?.join(", ") || ""),
-      cards: (payload.cards?.map((c: CardPick) => c.name + (c.reversed ? " (กลับหัว)" : "")).join(", ") || ""),
-      slots_text: (payload.slots ? payload.slots.map((s: any) => `${s.pos}. ${s.label}: ${s.card.name}${s.card.reversed ? " (กลับหัว)" : ""}`).join("\n") : ""),
+      cards: cardsText,
+      slots_text: (payload.slots
+        ? (payload.slots as { pos: number; label: string; card: CardPick }[])
+            .map((s) => `${s.pos}. ${s.label}: ${s.card.name}${s.card.reversed ? " (กลับหัว)" : ""}`)
+            .join("\n")
+        : ""),
     };
 
     if (dbContent) {
-      // support both {{slots_text}} and inline lists in templates
       let t = dbContent;
       if (t.includes("{{slots_text}}") && vars.slots_text) {
         t = t.replace("{{slots_text}}", vars.slots_text);
       }
       prompt = renderTemplate(t, vars);
     } else {
-      // fallback to static prompt builders
       if (mode === "threeCards") {
         prompt = buildThreeCardsPrompt(userBrief, topic ?? "", payload.cards);
       } else if (mode === "weighOptions") {
@@ -228,7 +250,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // --- Generate analysis from prompt (optional if no key) ---
+    // --- Generate analysis from prompt (optional) ---
     let analysis = "";
     try {
       if (process.env.OPENAI_API_KEY) {
@@ -259,7 +281,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("readings")
       .insert({
-        user_id: user.id,
+        user_id: targetUserId,
         type: "tarot",
         title: topic ?? null,
         payload, // JSON includes prompt_used + analysis
