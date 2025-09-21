@@ -2,12 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-/**
- * Supabase server client for API routes.
- * Works across Next 14/15 where cookies() may be sync/async.
- */
-async function getSupabase() {
-  const cookieStore = cookies();
+function getSupabase() {
+  const cookieStore = cookies() as any; // avoid Promise typing issues across Next versions
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -17,7 +13,9 @@ async function getSupabase() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach((c) => cookieStore.set(c));
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
         },
       },
     }
