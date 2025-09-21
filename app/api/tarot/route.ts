@@ -110,9 +110,10 @@ async function fetchPromptContentBySystem(
 }
 
 // --- Supabase client helper ---
-async function getSupabase() {
-  const cookieStore: any = await (cookies() as any);
-  const h: any = await (headers() as any);
+function getSupabase() {
+  // In Next.js 15, cookies() / headers() are synchronous. Do NOT await them.
+  const cookieStore = cookies();
+  const h = headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -128,7 +129,7 @@ async function getSupabase() {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
-      headers: { "x-forwarded-host": h.get?.("x-forwarded-host") ?? "" },
+      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -137,7 +138,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await getSupabase();
+    const supabase = getSupabase();
 
     const {
       data: { user },
