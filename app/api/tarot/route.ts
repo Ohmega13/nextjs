@@ -1,7 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import OpenAI from "openai";
 
 // --- Types ---
@@ -118,11 +118,22 @@ async function fetchPromptContentBySystem(
 
 // --- Supabase client helper (Next 15) ---
 function getSupabase() {
-  // ส่งตัวช่วยของ Next ตรง ๆ (ไม่ต้อง wrap)
+  const cookieStore = cookies(); // do not await
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies, headers }
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
   );
 }
 

@@ -2,23 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-// --- Supabase client (รองรับ Next 15: cookies เป็น async) ---
-async function getSupabase() {
-  const cookieStore = await cookies();
+// --- Supabase client (Next 15 cookie adapter: getAll/setAll) ---
+function getSupabase() {
+  const cookieStore = cookies(); // do not await
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, opts?: any) {
-          cookieStore.set({ name, value, ...opts });
-        },
-        remove(name: string, opts?: any) {
-          cookieStore.set({ name, value: "", ...opts, maxAge: 0 });
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
         },
       },
     }
