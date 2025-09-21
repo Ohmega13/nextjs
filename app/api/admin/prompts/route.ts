@@ -45,45 +45,81 @@ async function assertAdmin() {
   return supabase;
 }
 
-// ---------- GET /api/admin/prompts ----------
-export async function GET() {
+// ---------- GET /api/admin/prompts/[id] ----------
+export async function GET(
+  _req: Request,
+  ctx: { params: { id: string } }
+) {
   try {
     const supabase = await assertAdmin();
+    const { id } = ctx.params;
 
-    const { data, error } = await supabase.from("prompts").select("*");
+    const { data, error } = await supabase
+      .from("prompts")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-
-    return NextResponse.json({ ok: true, items: data });
+    return NextResponse.json({ ok: true, item: data });
   } catch (e: any) {
     if (e instanceof Response) return e;
-    console.error("[admin/prompts GET]", e);
+    console.error("[admin/prompts/:id GET]", e);
     return NextResponse.json({ ok: false, error: e?.message ?? "ERR_GET" }, { status: 500 });
   }
 }
 
-// ---------- POST /api/admin/prompts ----------
-export async function POST(req: Request) {
+// ---------- PUT /api/admin/prompts/[id] ----------
+export async function PUT(
+  req: Request,
+  ctx: { params: { id: string } }
+) {
   try {
     const supabase = await assertAdmin();
+    const { id } = ctx.params;
     const body = await req.json();
+
+    // Whitelist fields to update
+    const update: Record<string, any> = {};
+    if (body.key !== undefined) update.key = String(body.key);
+    if (body.title !== undefined) update.title = String(body.title);
+    if (body.system !== undefined) update.system = body.system; // "tarot" | "natal" | "palm"
+    if (body.subtype !== undefined) update.subtype = body.subtype ?? null;
+    if (body.content !== undefined) update.content = String(body.content);
 
     const { data, error } = await supabase
       .from("prompts")
-      .insert({
-        content: String(body.content || ""),
-        subtype: body.subtype ?? null,
-        system: body.system ?? null,
-      })
+      .update(update)
+      .eq("id", id)
       .select("*")
       .maybeSingle();
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-
     return NextResponse.json({ ok: true, item: data });
   } catch (e: any) {
     if (e instanceof Response) return e;
-    console.error("[admin/prompts POST]", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_POST" }, { status: 500 });
+    console.error("[admin/prompts/:id PUT]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_PUT" }, { status: 500 });
+  }
+}
+
+// ---------- DELETE /api/admin/prompts/[id] ----------
+export async function DELETE(
+  _req: Request,
+  ctx: { params: { id: string } }
+) {
+  try {
+    const supabase = await assertAdmin();
+    const { id } = ctx.params;
+
+    const { error } = await supabase.from("prompts").delete().eq("id", id);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    console.error("[admin/prompts/:id DELETE]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_DELETE" }, { status: 500 });
   }
 }
 
