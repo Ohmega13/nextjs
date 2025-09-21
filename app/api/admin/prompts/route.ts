@@ -1,10 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 // ---------- Supabase client (await cookies + get/set/remove) ----------
 async function getSupabase() {
-  const cookieStore = await cookies(); // ensure concrete cookie store (not a Promise type)
+  const cookieStore = await cookies(); // Next 15 returns a Promise
+  const h = await headers();
+
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -20,6 +25,7 @@ async function getSupabase() {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
+      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -42,86 +48,73 @@ async function assertAdmin() {
   if (error) throw new Response(error.message, { status: 400 });
   if (profile?.role !== "admin") throw new Response("FORBIDDEN", { status: 403 });
 
-  return supabase;
+  return { supabase, user };
 }
 
-// ---------- GET /api/admin/prompts/[id] ----------
-export async function GET(
-  _req: Request,
-  ctx: { params: { id: string } }
-) {
+// ---------- GET /api/admin/prompts  (list; ?system=tarot|natal|palm) ----------
+export async function GET(req: NextRequest) {
   try {
-    const supabase = await assertAdmin();
-    const { id } = ctx.params;
+    const guard = await assertAdmin();
+    const { supabase } = guard;
 
-    const { data, error } = await supabase
-      .from("prompts")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+    const { searchParams } = new URL(req.url);
+    const system = searchParams.get("system");
 
+    let q = supabase.from("prompts").select("*").order("updated_at", { ascending: false });
+    if (system) q = q.eq("system", system);
+
+    const { data, error } = await q;
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true, item: data });
+
+    return NextResponse.json({ ok: true, items: data });
   } catch (e: any) {
     if (e instanceof Response) return e;
-    console.error("[admin/prompts/:id GET]", e);
+    console.error("[admin/prompts GET]", e);
     return NextResponse.json({ ok: false, error: e?.message ?? "ERR_GET" }, { status: 500 });
   }
 }
 
-// ---------- PUT /api/admin/prompts/[id] ----------
-export async function PUT(
-  req: Request,
-  ctx: { params: { id: string } }
-) {
+// ---------- POST /api/admin/prompts  (create) ----------
+export async function POST(req: NextRequest) {
   try {
-    const supabase = await assertAdmin();
-    const { id } = ctx.params;
-    const body = await req.json();
+    const guard = await assertAdmin();
+    const { supabase, user } = guard;
 
-    // Whitelist fields to update
-    const update: Record<string, any> = {};
-    if (body.key !== undefined) update.key = String(body.key);
-    if (body.title !== undefined) update.title = String(body.title);
-    if (body.system !== undefined) update.system = body.system; // "tarot" | "natal" | "palm"
-    if (body.subtype !== undefined) update.subtype = body.subtype ?? null;
-    if (body.content !== undefined) update.content = String(body.content);
+    const body = await req.json().catch(() => ({}));
+    const { key, title, system, subtype, content } = body as {
+      key?: string;
+      title?: string;
+      system?: "tarot" | "natal" | "palm";
+      subtype?: string | null;
+      content?: string;
+    };
+
+    if (!key || !title || !system || !content) {
+      return NextResponse.json(
+        { ok: false, error: "missing fields: key,title,system,content" },
+        { status: 400 }
+      );
+    }
 
     const { data, error } = await supabase
       .from("prompts")
-      .update(update)
-      .eq("id", id)
+      .insert({
+        key,
+        title,
+        system,
+        subtype: subtype ?? null,
+        content,
+        created_by: user.id,
+      })
       .select("*")
-      .maybeSingle();
+      .single();
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
     return NextResponse.json({ ok: true, item: data });
   } catch (e: any) {
     if (e instanceof Response) return e;
-    console.error("[admin/prompts/:id PUT]", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_PUT" }, { status: 500 });
+    console.error("[admin/prompts POST]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_POST" }, { status: 500 });
   }
 }
-
-// ---------- DELETE /api/admin/prompts/[id] ----------
-export async function DELETE(
-  _req: Request,
-  ctx: { params: { id: string } }
-) {
-  try {
-    const supabase = await assertAdmin();
-    const { id } = ctx.params;
-
-    const { error } = await supabase.from("prompts").delete().eq("id", id);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    if (e instanceof Response) return e;
-    console.error("[admin/prompts/:id DELETE]", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_DELETE" }, { status: 500 });
-  }
-}
-
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
