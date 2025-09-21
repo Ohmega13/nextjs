@@ -45,23 +45,35 @@ async function assertAdmin() {
   return supabase;
 }
 
-// ---------- PUT /api/admin/prompts/[id] ----------
-export async function PUT(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+// ---------- GET /api/admin/prompts ----------
+export async function GET() {
+  try {
+    const supabase = await assertAdmin();
+
+    const { data, error } = await supabase.from("prompts").select("*");
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true, items: data });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    console.error("[admin/prompts GET]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_GET" }, { status: 500 });
+  }
+}
+
+// ---------- POST /api/admin/prompts ----------
+export async function POST(req: Request) {
   try {
     const supabase = await assertAdmin();
     const body = await req.json();
 
     const { data, error } = await supabase
       .from("prompts")
-      .update({
+      .insert({
         content: String(body.content || ""),
         subtype: body.subtype ?? null,
-        system: body.system ?? undefined, // allow system update if provided (optional)
+        system: body.system ?? null,
       })
-      .eq("id", params.id)
       .select("*")
       .maybeSingle();
 
@@ -70,25 +82,8 @@ export async function PUT(
     return NextResponse.json({ ok: true, item: data });
   } catch (e: any) {
     if (e instanceof Response) return e;
-    console.error("[admin/prompts/[id] PUT]", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_PUT" }, { status: 500 });
-  }
-}
-
-// ---------- DELETE /api/admin/prompts/[id] ----------
-export async function DELETE(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = await assertAdmin();
-    const { error } = await supabase.from("prompts").delete().eq("id", params.id);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    if (e instanceof Response) return e;
-    console.error("[admin/prompts/[id] DELETE]", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_DELETE" }, { status: 500 });
+    console.error("[admin/prompts POST]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_POST" }, { status: 500 });
   }
 }
 
