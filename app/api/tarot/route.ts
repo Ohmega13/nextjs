@@ -118,7 +118,7 @@ async function fetchPromptContentBySystem(
 
 // --- Supabase client helper (Next 15) ---
 function getSupabase() {
-  const cookieStore = cookies(); // do not await
+  const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

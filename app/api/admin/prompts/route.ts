@@ -1,33 +1,37 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-function getSupabase() {
-  const cookieStore = cookies() as any; // avoid Promise typing issues across Next versions
+// ---------- Supabase client (await cookies + get/set/remove) ----------
+async function getSupabase() {
+  const cookieStore = await cookies(); // ensure concrete cookie store (not a Promise type)
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+        set(name: string, value: string, options?: any) {
+          cookieStore.set({ name, value, ...(options || {}) });
+        },
+        remove(name: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
     }
   );
 }
 
-/** Guard: must be logged-in admin */
+// ---------- Guard: must be logged-in admin ----------
 async function assertAdmin() {
   const supabase = await getSupabase();
   const {
     data: { user },
+    error: uerr,
   } = await supabase.auth.getUser();
+  if (uerr) throw new Response(uerr.message, { status: 400 });
   if (!user) throw new Response("UNAUTHENTICATED", { status: 401 });
 
   const { data: profile, error } = await supabase
@@ -35,96 +39,56 @@ async function assertAdmin() {
     .select("role")
     .eq("user_id", user.id)
     .maybeSingle();
-
   if (error) throw new Response(error.message, { status: 400 });
   if (profile?.role !== "admin") throw new Response("FORBIDDEN", { status: 403 });
+
   return supabase;
 }
 
-// Table shape (no key/title columns on DB)
-interface Row {
-  id: string;
-  system: "tarot" | "natal" | "palm";
-  subtype: string | null;
-  content: string;
-  updated_at: string;
-}
-
-function synthesizeKey(r: Pick<Row, "system" | "subtype">) {
-  return `${r.system}_${r.subtype || "default"}`;
-}
-function synthesizeTitle(r: Pick<Row, "system" | "subtype">) {
-  const map: Record<string, string> = {
-    tarot_threeCards: "ไพ่ยิปซี: ถามเรื่องเดียว 3 ใบ",
-    tarot_weighOptions: "ไพ่ยิปซี: เปรียบเทียบ/ชั่งน้ำหนัก",
-    tarot_classic10: "ไพ่ยิปซี: แบบคลาสสิก 10 ใบ",
-    natal_thai: "พื้นดวง: โหราศาสตร์ไทย",
-    natal_western: "พื้นดวง: โหราศาสตร์ตะวันตก",
-    palm_default: "ดูลายมือ",
-  };
-  return map[synthesizeKey(r)] || `${r.system}${r.subtype ? ` / ${r.subtype}` : ""}`;
-}
-
-// GET /api/admin/prompts?system=tarot|natal|palm
-export async function GET(req: NextRequest) {
-  try {
-    // อนุญาตผู้ใช้ที่ล็อกอินอ่านได้ (ไม่บังคับ admin เพื่อให้หน้า UI มองเห็นรายการ)
-    const supabase = await getSupabase();
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!user) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-
-    const { searchParams } = new URL(req.url);
-    const system = searchParams.get("system") as Row["system"] | null;
-
-    let q = supabase
-      .from("prompts")
-      .select("id, system, subtype, content, updated_at")
-      .order("updated_at", { ascending: false });
-
-    if (system) q = q.eq("system", system);
-
-    const { data, error } = await q;
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-
-    const items = (data || []).map((r: Row) => ({
-      ...r,
-      key: synthesizeKey(r),
-      title: synthesizeTitle(r),
-    }));
-
-    return NextResponse.json({ ok: true, items });
-  } catch (e: any) {
-    console.error("[admin/prompts GET]", e?.message || e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_GET" }, { status: 500 });
-  }
-}
-
-// POST create (DB has no key/title; accept and ignore them)
-export async function POST(req: NextRequest) {
+// ---------- PUT /api/admin/prompts/[id] ----------
+export async function PUT(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   try {
     const supabase = await assertAdmin();
     const body = await req.json();
 
-    const payload: Pick<Row, "system" | "subtype" | "content"> = {
-      system: body.system as Row["system"],
-      subtype: (body.subtype ?? null) as string | null,
-      content: String(body.content || ""),
-    };
-
     const { data, error } = await supabase
       .from("prompts")
-      .insert(payload)
+      .update({
+        content: String(body.content || ""),
+        subtype: body.subtype ?? null,
+        system: body.system ?? undefined, // allow system update if provided (optional)
+      })
+      .eq("id", params.id)
       .select("*")
       .maybeSingle();
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
-    const item = { ...(data as Row), key: synthesizeKey(data as Row), title: synthesizeTitle(data as Row) };
-    return NextResponse.json({ ok: true, item });
+    return NextResponse.json({ ok: true, item: data });
   } catch (e: any) {
     if (e instanceof Response) return e;
-    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_POST" }, { status: 500 });
+    console.error("[admin/prompts/[id] PUT]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_PUT" }, { status: 500 });
+  }
+}
+
+// ---------- DELETE /api/admin/prompts/[id] ----------
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await assertAdmin();
+    const { error } = await supabase.from("prompts").delete().eq("id", params.id);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    console.error("[admin/prompts/[id] DELETE]", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "ERR_DELETE" }, { status: 500 });
   }
 }
 
