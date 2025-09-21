@@ -73,12 +73,22 @@ function synthesizeTitle(r: Pick<Row, "system" | "subtype">) {
 // GET /api/admin/prompts?system=tarot|natal|palm
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await assertAdmin();
+    // อนุญาตผู้ใช้ที่ล็อกอินอ่านได้ (ไม่บังคับ admin เพื่อให้หน้า UI มองเห็นรายการ)
+    const supabase = await getSupabase();
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!user) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const system = searchParams.get("system") as Row["system"] | null;
 
-    let q = supabase.from("prompts").select("*").order("updated_at", { ascending: false });
+    let q = supabase
+      .from("prompts")
+      .select("id, system, subtype, content, updated_at")
+      .order("updated_at", { ascending: false });
+
     if (system) q = q.eq("system", system);
+
     const { data, error } = await q;
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
@@ -87,9 +97,10 @@ export async function GET(req: NextRequest) {
       key: synthesizeKey(r),
       title: synthesizeTitle(r),
     }));
+
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
-    if (e instanceof Response) return e;
+    console.error("[admin/prompts GET]", e?.message || e);
     return NextResponse.json({ ok: false, error: e?.message ?? "ERR_GET" }, { status: 500 });
   }
 }

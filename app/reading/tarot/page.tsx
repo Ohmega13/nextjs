@@ -111,6 +111,7 @@ export default function TarotReadingPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (role === 'admin' && clientId) headers['x-ddt-target-user'] = clientId;
     } catch {}
 
     setIsDrawing(true);
@@ -120,25 +121,41 @@ export default function TarotReadingPage() {
         method: 'POST',
         headers,
         body: JSON.stringify(apiPayload),
+        cache: 'no-store',
       });
-    } finally {
-      // nothing here; we'll stop the spinner after processing
-    }
-
-    if (!res.ok) {
+    } catch (e) {
       setIsDrawing(false);
       setShowConfirm(false);
       setProgress(100);
       setTimeout(() => setProgress(0), 600);
+      alert(`เชื่อมต่อเซิร์ฟเวอร์ไม่ได้: ${(e as Error).message}`);
       return;
     }
-    const data = await res.json(); // { ok, reading }
+
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      // ignore json parse error
+    }
+
+    if (!res.ok || !data?.ok) {
+      setIsDrawing(false);
+      setShowConfirm(false);
+      setProgress(100);
+      setTimeout(() => setProgress(0), 600);
+      const msg = data?.error || `เกิดข้อผิดพลาด (${res.status})`;
+      alert(msg);
+      return;
+    }
+
     const r = data?.reading;
     if (!r) {
       setIsDrawing(false);
       setShowConfirm(false);
       setProgress(100);
       setTimeout(() => setProgress(0), 600);
+      alert('ไม่ได้รับผลการดูไพ่จากเซิร์ฟเวอร์');
       return;
     }
 
@@ -153,6 +170,14 @@ export default function TarotReadingPage() {
 
     // เก็บข้อความคำทำนายจาก API (ถ้ามี)
     setResult(r.payload?.analysis ?? "");
+
+    // เปิดดูผลล่าสุดในป๊อปอัปทันที
+    setOpenView({
+      id: r.id,
+      created_at: r.created_at,
+      topic: r.topic,
+      payload: r.payload,
+    } as any);
 
     // prepend ประวัติ
     setHistory(prev => [{ id: r.id, created_at: r.created_at, topic: r.topic, payload: r.payload }, ...prev]);
