@@ -110,9 +110,9 @@ async function fetchPromptContentBySystem(
 }
 
 // --- Supabase client helper ---
-function getSupabase() {
-  const cookieStore = cookies();
-  const h = headers();
+async function getSupabase() {
+  const cookieStore: any = await (cookies() as any);
+  const h: any = await (headers() as any);
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -128,7 +128,7 @@ function getSupabase() {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
-      headers: { "x-forwarded-host": h.get("x-forwarded-host") ?? "" },
+      headers: { "x-forwarded-host": h.get?.("x-forwarded-host") ?? "" },
     }
   );
 }
@@ -137,7 +137,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = getSupabase();
+    const supabase = await getSupabase();
 
     const {
       data: { user },
