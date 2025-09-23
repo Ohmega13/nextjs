@@ -18,13 +18,13 @@ async function getSupabaseServer() {
       cookies: {
         get(name) {
           const cookie = cookieStore.get(name);
-          return cookie ? { name: cookie.name, value: cookie.value } : undefined;
+          return cookie ? cookie.value : undefined;
         },
         set(name, value, options) {
           cookieStore.set({ name, value, ...options });
         },
         remove(name, options) {
-          cookieStore.delete(name, options);
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
     }
