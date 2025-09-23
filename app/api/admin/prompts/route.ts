@@ -5,10 +5,10 @@ import { cookies, headers } from "next/headers";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// ---------- Supabase client (await cookies + get/set/remove) ----------
+// ---------- Supabase client (cookies/headers are synchronous in Next 15) ----------
 async function getSupabase() {
-  const cookieStore = await cookies(); // Next 15 returns a Promise
-  const h = await headers();
+  const cookieStore = cookies(); // Next 15: synchronous
+  const h = headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -4,8 +4,8 @@ import { cookies, headers } from "next/headers";
 
 // Build a Supabase server client using Next 15 cookie/header adapters
 async function getSupabase() {
-  const cookieStore = await cookies(); // Next 15 returns a Promise
-  const h = await headers();
+  const cookieStore = cookies(); // Next 15 returns synchronously
+  const h = headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,14 +46,14 @@ async function requireAdmin() {
 // PUT /api/admin/prompts/[id]
 export async function PUT(
   req: NextRequest,
-  ctx: { params: Promise<{ id: string }> } // Next 15: params is a Promise
+  ctx: { params: { id: string } } // Next 15: params is not a Promise
 ) {
   const { supabase, isAdmin } = await requireAdmin();
   if (!isAdmin) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 
-  const { id } = await ctx.params; // await the params
+  const { id } = ctx.params; // no await
   const body = await req.json();
 
   // Whitelist fields to update
@@ -80,14 +80,14 @@ export async function PUT(
 // DELETE /api/admin/prompts/[id]
 export async function DELETE(
   _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> } // Next 15: params is a Promise
+  ctx: { params: { id: string } } // Next 15: params is not a Promise
 ) {
   const { supabase, isAdmin } = await requireAdmin();
   if (!isAdmin) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 
-  const { id } = await ctx.params; // await the params
+  const { id } = ctx.params; // no await
 
   const { error } = await supabase.from("prompts").delete().eq("id", id);
   if (error) {
