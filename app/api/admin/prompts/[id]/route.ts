@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
-function getSupabaseServer() {
-  const cookieStore = cookies();
-  const headerStore = headers();
+// Next.js 15: cookies() / headers() are async in route handlers.
+// So we await them here and wire into Supabase SSR client.
+async function getSupabaseServer() {
+  const cookieStore = await cookies();
+  const headerStore = await headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,21 +18,25 @@ function getSupabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options?: any) {
+          // Next 15 supports object form for set
           cookieStore.set({ name, value, ...(options || {}) });
         },
-        remove(name: string, options?: any) {
-          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
+        remove(name: string) {
+          // delete() signature only takes the cookie name
+          cookieStore.delete(name);
         },
       },
       headers: {
+        // Pass through forwarded host if present (use empty string otherwise)
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
       },
     }
   );
 }
 
-export async function PUT(req: Request, context: any) {
-  const supabase = getSupabaseServer();
+// PUT /api/admin/prompts/[id]
+export async function PUT(req: Request, context: { params: { id: string } }) {
+  const supabase = await getSupabaseServer();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
   if (authErr) {
@@ -73,8 +79,9 @@ export async function PUT(req: Request, context: any) {
   return NextResponse.json({ ok: true, item: data });
 }
 
-export async function DELETE(_req: Request, context: any) {
-  const supabase = getSupabaseServer();
+// DELETE /api/admin/prompts/[id]
+export async function DELETE(_req: Request, context: { params: { id: string } }) {
+  const supabase = await getSupabaseServer();
 
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) {
