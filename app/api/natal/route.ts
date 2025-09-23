@@ -5,24 +5,26 @@ import { createServerClient } from "@supabase/ssr";
 
 /**
  * Create a Supabase server client that works in Route Handlers (Next.js 15).
- * IMPORTANT: Use the new cookies.getAll / cookies.setAll adapter shape to avoid
+ * IMPORTANT: Use the new cookies.get / cookies.set / cookies.delete adapter shape to avoid
  * build-time type errors with @supabase/ssr.
  */
-function getSupabaseServer() {
-  const cookieStore = cookies();
+async function getSupabaseServer() {
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        get(name) {
+          const cookie = cookieStore.get(name);
+          return cookie ? { name: cookie.name, value: cookie.value } : undefined;
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set({ name, value, ...options });
-          });
+        set(name, value, options) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name, options) {
+          cookieStore.delete(name, options);
         },
       },
     }
@@ -88,7 +90,7 @@ function renderTemplate(tpl: string, vars: Record<string, string | undefined>) {
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = getSupabaseServer();
+    const supabase = await getSupabaseServer();
 
     // Require login (same behavior as other secure API routes)
     const {

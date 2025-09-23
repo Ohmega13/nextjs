@@ -1,7 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 
 // --- Types ---
@@ -119,6 +119,7 @@ async function fetchPromptContentBySystem(
 // --- Supabase client helper (Next 15) ---
 function getSupabase() {
   const cookieStore = cookies();
+  const headerStore = headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -132,6 +133,11 @@ function getSupabase() {
             cookieStore.set(name, value, options);
           });
         },
+      },
+      headers: {
+        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "referer": headerStore.get("referer") ?? "",
+        "user-agent": headerStore.get("user-agent") ?? ""
       },
     }
   );

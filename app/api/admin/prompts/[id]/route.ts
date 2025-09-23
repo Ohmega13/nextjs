@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-// --- Supabase client (Next 15 cookie adapter: getAll/setAll) ---
+// Build a Supabase server client using Next 15 cookie adapter (getAll/setAll)
 function getSupabase() {
-  const cookieStore = cookies(); // do not await
-
+  const cookieStore = cookies(); // NOTE: DO NOT await
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -14,7 +13,7 @@ function getSupabase() {
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
           });
@@ -25,7 +24,7 @@ function getSupabase() {
 }
 
 async function requireAdmin() {
-  const supabase = await getSupabase();
+  const supabase = getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { supabase, isAdmin: false };
 
@@ -38,18 +37,17 @@ async function requireAdmin() {
   return { supabase, isAdmin: profile?.role === "admin" };
 }
 
-async function getIdFromCtx(ctx: any): Promise<string> {
-  const p = ctx?.params;
-  const resolved = p && typeof p.then === "function" ? await p : p;
-  return resolved?.id as string;
-}
-
-export async function PUT(req: NextRequest, ctx: any) {
-  const id = await getIdFromCtx(ctx);
-
+// PUT /api/admin/prompts/[id]
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   const { supabase, isAdmin } = await requireAdmin();
-  if (!isAdmin) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  if (!isAdmin) {
+    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
 
+  const id = params.id;
   const body = await req.json();
   const { key, title, system, subtype, content } = body as {
     key: string;
@@ -64,17 +62,27 @@ export async function PUT(req: NextRequest, ctx: any) {
     .update({ key, title, system, subtype, content })
     .eq("id", id);
 
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  }
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: NextRequest, ctx: any) {
-  const id = await getIdFromCtx(ctx);
-
+// DELETE /api/admin/prompts/[id]
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   const { supabase, isAdmin } = await requireAdmin();
-  if (!isAdmin) return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  if (!isAdmin) {
+    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
 
+  const id = params.id;
   const { error } = await supabase.from("prompts").delete().eq("id", id);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  }
   return NextResponse.json({ ok: true });
 }
