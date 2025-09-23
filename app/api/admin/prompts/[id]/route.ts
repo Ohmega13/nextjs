@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/admin/prompts/[id]/route.ts
+import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
-// Build a Supabase server client using Next 15 cookie/header adapters
-async function getSupabase() {
-  const cookieStore = cookies(); // Next 15 returns synchronously
-  const h = headers();
+function getSupabaseServer() {
+  const cookieStore = cookies();
+  const headerStore = headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,50 +23,48 @@ async function getSupabase() {
         },
       },
       headers: {
-        "x-forwarded-host": h.get("x-forwarded-host") ?? "",
+        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
       },
     }
   );
 }
 
-async function requireAdmin() {
-  const supabase = await getSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { supabase, isAdmin: false };
+export async function PUT(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  const supabase = getSupabaseServer();
+
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr) {
+    return NextResponse.json({ ok: false, error: authErr.message }, { status: 401 });
+  }
+  if (!auth?.user) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
 
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
-    .eq("user_id", user.id)
+    .eq("user_id", auth.user.id)
     .maybeSingle();
 
-  return { supabase, isAdmin: profile?.role === "admin" };
-}
-
-// PUT /api/admin/prompts/[id]
-export async function PUT(
-  req: NextRequest,
-  ctx: { params: { id: string } } // Next 15: params is not a Promise
-) {
-  const { supabase, isAdmin } = await requireAdmin();
-  if (!isAdmin) {
-    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
-  const { id } = ctx.params; // no await
+  const id = params.id;
   const body = await req.json();
-
-  // Whitelist fields to update
-  const allowed: any = {};
-  if (typeof body.key === "string") allowed.key = body.key;
-  if (typeof body.title === "string") allowed.title = body.title;
-  if (typeof body.system === "string") allowed.system = body.system; // "tarot" | "natal" | "palm"
-  if (typeof body.subtype === "string" || body.subtype === null) allowed.subtype = body.subtype;
-  if (typeof body.content === "string") allowed.content = body.content;
 
   const { data, error } = await supabase
     .from("prompts")
-    .update({ ...allowed, updated_at: new Date().toISOString() })
+    .update({
+      key: body.key,
+      title: body.title,
+      system: body.system,
+      subtype: body.subtype ?? null,
+      content: body.content,
+    })
     .eq("id", id)
     .select()
     .maybeSingle();
@@ -74,24 +72,35 @@ export async function PUT(
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   }
+
   return NextResponse.json({ ok: true, item: data });
 }
 
-// DELETE /api/admin/prompts/[id]
 export async function DELETE(
-  _req: NextRequest,
-  ctx: { params: { id: string } } // Next 15: params is not a Promise
+  _req: Request,
+  { params }: { params: { id: string } }
 ) {
-  const { supabase, isAdmin } = await requireAdmin();
-  if (!isAdmin) {
-    return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  const supabase = getSupabaseServer();
+
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = ctx.params; // no await
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
 
-  const { error } = await supabase.from("prompts").delete().eq("id", id);
+  if (profile?.role !== "admin") {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  const { error } = await supabase.from("prompts").delete().eq("id", params.id);
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   }
+
   return NextResponse.json({ ok: true });
 }
