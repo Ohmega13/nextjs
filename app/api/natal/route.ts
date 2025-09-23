@@ -4,9 +4,8 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 /**
- * Create a Supabase server client that works in Route Handlers (Next.js 15).
- * IMPORTANT: Use the new cookies.get / cookies.set / cookies.delete adapter shape to avoid
- * build-time type errors with @supabase/ssr.
+ * Supabase server client for Route Handlers (Next.js 15).
+ * ใช้รูปแบบ cookies adapter ใหม่ (get / set / remove) ให้ตรง type ของ Next 15
  */
 async function getSupabaseServer() {
   const cookieStore = await cookies();
@@ -16,14 +15,16 @@ async function getSupabaseServer() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
-          const cookie = cookieStore.get(name);
-          return cookie ? cookie.value : undefined;
+        // คืนค่าเป็น string (หรือ undefined) ให้ตรงกับที่ @supabase/ssr คาดหวัง
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        set(name, value, options) {
-          cookieStore.set({ name, value, ...options });
+        // set แบบ object form ของ Next 15
+        set(name: string, value: string, options?: any) {
+          cookieStore.set({ name, value, ...(options || {}) });
         },
-        remove(name, options) {
+        // หลีกเลี่ยง delete() เพราะชน type; ใช้ set + maxAge: 0 แทน
+        remove(name: string, options?: any) {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
@@ -31,7 +32,7 @@ async function getSupabaseServer() {
   );
 }
 
-// --- Fallback prompt texts in case the DB has no prompt rows yet ---
+// --- Fallback prompt texts (กรณียังไม่มีใน DB) ---
 const FALLBACK_THAI = `
 วิเคราะห์พื้นดวงตามหลักโหราศาสตร์ไทย โดยใช้ข้อมูลต่อไปนี้
 – ชื่อ-นามสกุล: [ชื่อ-นามสกุล]
@@ -70,21 +71,19 @@ const FALLBACK_WESTERN = `
 9) Numerology (เลขนำโชค)
 **ใช้ภาษาทันสมัย เข้าใจง่าย แบบผู้เชี่ยวชาญระดับ premium**`.trim();
 
-/** Simple template renderer for both square-bracket and moustache styles */
+/** renderer รองรับทั้งวงเล็บเหลี่ยม และ moustache {{var}} */
 function renderTemplate(tpl: string, vars: Record<string, string | undefined>) {
   let out = tpl;
-  // square brackets (Thai copy)
+  // square-bracket placeholders
   out = out.replace(/\[ชื่อ-นามสกุล\]/g, vars.full_name ?? "");
   out = out.replace(/\[วัน\/เดือน\/ปีเกิด\]/g, vars.dob ?? "");
   out = out.replace(/\[เวลาเกิด\]/g, vars.birth_time ?? "");
   out = out.replace(/\[จังหวัด\/ประเทศ\]/g, vars.birth_place ?? "");
-
   // moustache placeholders
   out = out.replace(/\{\{\s*full_name\s*\}\}/g, vars.full_name ?? "");
   out = out.replace(/\{\{\s*dob\s*\}\}/g, vars.dob ?? "");
   out = out.replace(/\{\{\s*birth_time\s*\}\}/g, vars.birth_time ?? "");
   out = out.replace(/\{\{\s*birth_place\s*\}\}/g, vars.birth_place ?? "");
-
   return out;
 }
 
@@ -92,26 +91,20 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = await getSupabaseServer();
 
-    // Require login (same behavior as other secure API routes)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Require login
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json(
-        { ok: false, error: "UNAUTHENTICATED" },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
 
     const body = await req.json();
-    const system: "thai" | "western" =
-      body?.system === "western" ? "western" : "thai";
+    const system: "thai" | "western" = body?.system === "western" ? "western" : "thai";
     const full_name = body?.full_name ?? body?.fullName ?? "";
     const dob = body?.dob ?? "";
     const birth_time = body?.birth_time ?? body?.birthTime ?? "";
     const birth_place = body?.birth_place ?? body?.birthPlace ?? "";
 
-    // Pull latest prompt from DB (system='natal', subtype='thai'|'western')
+    // ดึง prompt ล่าสุดจากตาราง prompts (system='natal', subtype='thai'|'western')
     const { data: row, error: dbErr } = await supabase
       .from("prompts")
       .select("id, content, updated_at")
@@ -121,21 +114,12 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    if (dbErr) {
-      console.error("DB error:", dbErr);
-    }
+    if (dbErr) console.error("DB error:", dbErr);
 
-    const basePrompt =
-      row?.content ?? (system === "thai" ? FALLBACK_THAI : FALLBACK_WESTERN);
+    const basePrompt = row?.content ?? (system === "thai" ? FALLBACK_THAI : FALLBACK_WESTERN);
+    const rendered = renderTemplate(basePrompt, { full_name, dob, birth_time, birth_place });
 
-    const rendered = renderTemplate(basePrompt, {
-      full_name,
-      dob,
-      birth_time,
-      birth_place,
-    });
-
-    // Return the rendered prompt. (The actual LLM call can be done client-side or another service.)
+    // ส่งออก prompt ที่ render แล้ว (ฝั่ง client หรือ service อื่นค่อยยิง LLM)
     return NextResponse.json({
       ok: true,
       reading: {
@@ -148,9 +132,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("natal route error:", err);
-    return NextResponse.json(
-      { ok: false, error: err?.message || "internal_error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "internal_error" }, { status: 500 });
   }
 }
