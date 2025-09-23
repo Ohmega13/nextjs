@@ -29,10 +29,7 @@ function getSupabaseServer() {
   );
 }
 
-export async function PUT(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(req: Request, context: any) {
   const supabase = getSupabaseServer();
 
   const { data: auth, error: authErr } = await supabase.auth.getUser();
@@ -53,7 +50,7 @@ export async function PUT(
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
-  const id = params.id;
+  const id = context?.params?.id as string;
   const body = await req.json();
 
   const { data, error } = await supabase
@@ -76,10 +73,7 @@ export async function PUT(
   return NextResponse.json({ ok: true, item: data });
 }
 
-export async function DELETE(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(_req: Request, context: any) {
   const supabase = getSupabaseServer();
 
   const { data: auth } = await supabase.auth.getUser();
@@ -97,11 +91,11 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
-  const { error } = await supabase.from("prompts").delete().eq("id", params.id);
+  const id = context?.params?.id as string;
+  const { error } = await supabase.from("prompts").delete().eq("id", id);
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   }
 
-  
   return NextResponse.json({ ok: true });
 }
