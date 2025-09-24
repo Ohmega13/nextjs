@@ -24,6 +24,7 @@ export default function AdminPromptsPage() {
   const [items, setItems] = useState<PromptRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [debug, setDebug] = useState<any | null>(null);
 
   // สร้าง Supabase client ฝั่ง browser เพื่อดึง access_token ของ user ที่ล็อกอินอยู่
   const supabase = useMemo(() => {
@@ -52,11 +53,21 @@ export default function AdminPromptsPage() {
       if (!res.ok) {
         // อ่านรายละเอียด error จาก body เพื่อช่วยดีบัก
         const bodyText = await res.text().catch(() => "");
+        setDebug({ url: apiUrl, status: res.status, body: bodyText || res.statusText });
         throw new Error(`fetch failed: ${res.status} ${bodyText || res.statusText}`);
       }
 
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "fetch failed");
+      let json = null;
+      let text = null;
+      try {
+        json = await res.json();
+      } catch {
+        text = await res.text();
+      }
+
+      setDebug({ url: apiUrl, status: res.status, body: json ?? text });
+
+      if (!json?.ok) throw new Error(json?.error || "fetch failed");
 
       setItems(json.items || []);
     } catch (e: any) {
@@ -156,6 +167,15 @@ export default function AdminPromptsPage() {
           {" {{full_name}}, {{dob}}, {{birth_time}}, {{birth_place}}, {{question}}, {{options}}, {{cards}} "}
         </code>
       </p>
+
+      {debug && (
+        <details className="mt-6 text-xs text-gray-600">
+          <summary className="cursor-pointer">Debug Response</summary>
+          <pre className="bg-gray-100 p-2 rounded overflow-auto">
+            {JSON.stringify(debug, null, 2)}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }
