@@ -7,8 +7,8 @@ import { createServerClient } from "@supabase/ssr";
  * Supabase server client for Route Handlers (Next.js 15).
  * ใช้รูปแบบ cookies adapter ใหม่ (get / set / remove) ให้ตรง type ของ Next 15
  */
-function getSupabaseServer() {
-  const cookieStore = cookies();
+async function getSupabaseServer() {
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
