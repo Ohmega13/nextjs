@@ -145,7 +145,10 @@ export default function AdminPromptsPage() {
       </div>
 
       <p className="mt-8 text-xs text-gray-400">
-        ตัวแปรที่ใช้บ่อย: {{}}full_name}}, {{}}dob}}, {{}}birth_time}}, {{}}birth_place}}, {{}}question}}, {{}}options}}, {{}}cards}}
+        ตัวแปรที่ใช้บ่อย:
+        <code>
+          {" {{full_name}}, {{dob}}, {{birth_time}}, {{birth_place}}, {{question}}, {{options}}, {{cards}} "}
+        </code>
       </p>
     </div>
   );
