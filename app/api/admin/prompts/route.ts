@@ -40,11 +40,19 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const system = searchParams.get("system");
+    const systemFilter = system?.toLowerCase() ?? null;
 
-    let query = supabase.from("prompts").select("*");
-    if (system) query = query.eq("system", system);
+    let query = supabase
+      .from("prompts")
+      .select("id,key,system,subtype,title,content,updated_at")
+      .order("updated_at", { ascending: false });
 
-    const { data, error, status } = await query.order("updated_at", { ascending: false });
+    // ถ้ามีการส่ง system มา ให้เทียบแบบไม่สนตัวพิมพ์ (lowercase)
+    if (systemFilter) {
+      query = query.eq("system", systemFilter);
+    }
+
+    const { data, error, status } = await query;
 
     if (error) {
       return NextResponse.json(
