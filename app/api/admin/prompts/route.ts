@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
+/**
+ * Supabase client for Next.js 15 Route Handlers
+ * - ต้อง await cookies()/headers()
+ * - adapter ของ cookies ต้องเป็นแบบ object form ของ Next 15
+ */
 async function getSupabaseServer() {
-  // Next.js 15: cookies(), headers() เป็น async
   const cookieStore = await cookies();
   const headerStore = await headers();
 
@@ -20,32 +21,31 @@ async function getSupabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options ?? {}) });
+          cookieStore.set({ name, value, ...(options || {}) });
         },
         remove(name: string, options?: any) {
-          // ใช้ set + maxAge:0 แทน delete() ให้ตรง type และปลอดภัยบน Next 15
-          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
+          // ใช้ set + maxAge:0 แทน delete เพื่อไม่ชน type
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
       headers: {
+        // เผื่อ Vercel/Proxy ต้องอ้าง host เดิม
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
-        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
       },
     }
   );
 }
 
-async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+// ให้แน่ใจว่า route นี้ไม่โดน cache
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-  if (error || !user) {
-    return {
-      ok: false as const,
-      res: NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }),
-    };
+async function assertAdmin() {
+  const supabase = await getSupabaseServer();
+
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    return { ok: false as const, res: NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }) };
   }
 
   const { data: profile } = await supabase
@@ -54,44 +54,29 @@ async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer
     .eq("user_id", user.id)
     .maybeSingle();
 
-  // ถ้าในตาราง profiles ยังไม่มีแถวของผู้ใช้ ให้ลองเช็คผ่านฟังก์ชัน is_admin(uid) ที่ฝั่ง DB
   if (profile?.role !== "admin") {
-    try {
-      const { data: isAdminRpc } = await supabase.rpc("is_admin", { uid: user.id as string });
-      if (!isAdminRpc) {
-        return {
-          ok: false as const,
-          res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-        };
-      }
-    } catch {
-      return {
-        ok: false as const,
-        res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-      };
-    }
+    return { ok: false as const, res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }) };
   }
 
-  return { ok: true as const };
+  return { ok: true as const, supabase };
 }
 
-// GET /api/admin/prompts
+// GET /api/admin/prompts?system=tarot|natal|palm
 export async function GET(req: Request) {
   try {
-    const supabase = await getSupabaseServer();
-    const admin = await assertAdmin(supabase);
+    const admin = await assertAdmin();
     if (!admin.ok) return admin.res;
 
-    const { searchParams } = new URL(req.url);
-    const system = searchParams.get("system");
+    const url = new URL(req.url);
+    const system = url.searchParams.get("system") || undefined;
 
-    let query = supabase.from("prompts").select("*");
-    if (system) query = query.eq("system", system);
+    const query = admin.supabase!.from("prompts").select("*").order("updated_at", { ascending: false });
+    if (system) query.eq("system", system);
 
-    const { data, error } = await query.order("updated_at", { ascending: false });
+    const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, items: data });
+    return NextResponse.json({ ok: true, items: data ?? [] });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "fetch failed" }, { status: 500 });
   }
@@ -100,22 +85,19 @@ export async function GET(req: Request) {
 // POST /api/admin/prompts
 export async function POST(req: Request) {
   try {
-    const supabase = await getSupabaseServer();
-    const admin = await assertAdmin(supabase);
+    const admin = await assertAdmin();
     if (!admin.ok) return admin.res;
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { key, title, system, subtype = null, content } = body ?? {};
 
-    const insert = { key, title, system, subtype, content };
-    const { data, error } = await supabase
+    const { error } = await admin.supabase!
       .from("prompts")
-      .insert(insert)
-      .select("id, updated_at")
-      .single();
+      .insert({ key, title, system, subtype, content });
+
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, id: data.id, updated_at: data.updated_at });
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "create failed" }, { status: 500 });
   }
