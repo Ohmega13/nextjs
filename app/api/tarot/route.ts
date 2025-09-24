@@ -315,12 +315,16 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("readings")
       .insert({
-        user_id: targetUserId,
+        user_id: targetUserId,       // subject (เจ้าของดวง)
+        created_by: user.id,         // คนกดเปิดไพ่ (ผู้สร้าง)
+        client_id: targetUserId,     // อ้างถึงผู้ถูกอ่าน (ถ้ามีคอลัมน์นี้)
         type: "tarot",
-        title: topic ?? null,
+        mode,                        // threeCards | weighOptions | classic10
+        topic: topic ?? null,        // เก็บหัวข้อถามแยกต่างหาก
+        title: topic ?? null,        // title อาจซ้ำกับ topic เพื่อให้ UI เดิมทำงาน
         payload,
       })
-      .select("id, created_at, title, payload")
+      .select("id, created_at, type, mode, topic, title, payload")
       .single();
 
     if (error) {
