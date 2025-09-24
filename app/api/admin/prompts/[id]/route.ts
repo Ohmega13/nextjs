@@ -27,7 +27,7 @@ async function getSupabaseServer() {
   );
 }
 
-export async function PUT(req: Request, { params }: any) {
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = await getSupabaseServer();
     const body = await req.json();
@@ -69,7 +69,7 @@ export async function PUT(req: Request, { params }: any) {
   }
 }
 
-export async function DELETE(_req: Request, { params }: any) {
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = await getSupabaseServer();
 

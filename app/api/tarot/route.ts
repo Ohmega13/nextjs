@@ -4,6 +4,9 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import OpenAI from "openai";
 
+// --- constants ---
+const SYSTEM_KEY = "tarot" as const;
+
 // --- Types ---
 type TarotMode = "threeCards" | "weighOptions" | "classic10";
 type CardPick = { name: string; reversed: boolean };
@@ -204,7 +207,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: "AT_LEAST_TWO_OPTIONS" }, { status: 400 });
       }
       const _opts = options.slice(0, 3);
-      const cards = pickCards(Math.max(2, _opts.length));
+      const cards = pickCards(_opts.length);
       const pairs = _opts.map((option: string, i: number) => ({ option, card: cards[i] }));
       payload = { ...payload, options: _opts, pairs };
     }
@@ -218,7 +221,7 @@ export async function POST(req: NextRequest) {
 
     // ----- build prompt: prefer DB template (admin-editable), fallback to static builders
     const subtype = mode as string; // threeCards | weighOptions | classic10
-    const dbContent = await fetchPromptContentBySystem(supabase, "tarot", subtype);
+    const dbContent = await fetchPromptContentBySystem(supabase, SYSTEM_KEY, subtype);
 
     const cardsText = (() => {
       if (mode === "threeCards") {
