@@ -57,8 +57,8 @@ export default function AdminPromptsPage() {
         throw new Error(`fetch failed: ${res.status} ${bodyText || res.statusText}`);
       }
 
-      let json = null;
-      let text = null;
+      let json: any = null;
+      let text: string | null = null;
       try {
         json = await res.json();
       } catch {
