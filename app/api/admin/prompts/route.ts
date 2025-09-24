@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
-function getSupabaseServer() {
-  const cookieStore = cookies();
-  const headerStore = headers();
+async function getSupabaseServer() {
+  // Next.js 15: cookies(), headers() เป็น async
+  const cookieStore = await cookies();
+  const headerStore = await headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,8 +19,9 @@ function getSupabaseServer() {
         set(name: string, value: string, options?: any) {
           cookieStore.set({ name, value, ...(options ?? {}) });
         },
-        remove(name: string) {
-          cookieStore.delete(name);
+        remove(name: string, options?: any) {
+          // ใช้ set + maxAge:0 แทน delete() ให้ตรง type และปลอดภัยบน Next 15
+          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
         },
       },
       headers: {
@@ -29,7 +31,7 @@ function getSupabaseServer() {
   );
 }
 
-async function assertAdmin(supabase: ReturnType<typeof getSupabaseServer>) {
+async function assertAdmin(supabase: any) {
   const {
     data: { user },
     error,
@@ -61,12 +63,11 @@ async function assertAdmin(supabase: ReturnType<typeof getSupabaseServer>) {
 // GET /api/admin/prompts
 export async function GET(_req: Request) {
   try {
-    const supabase = getSupabaseServer();
+    const supabase = await getSupabaseServer();
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
     const { data, error } = await supabase.from("prompts").select("*");
-
     if (error) throw error;
 
     return NextResponse.json({ ok: true, items: data });
@@ -78,7 +79,7 @@ export async function GET(_req: Request) {
 // POST /api/admin/prompts
 export async function POST(req: Request) {
   try {
-    const supabase = getSupabaseServer();
+    const supabase = await getSupabaseServer();
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -86,7 +87,6 @@ export async function POST(req: Request) {
     const { key, title, system, subtype = null, content } = body ?? {};
 
     const insert = { key, title, system, subtype, content };
-
     const { error } = await supabase.from("prompts").insert(insert);
     if (error) throw error;
 

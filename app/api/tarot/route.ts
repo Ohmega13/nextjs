@@ -11,13 +11,6 @@ const SYSTEM_KEY = "tarot" as const;
 type TarotMode = "threeCards" | "weighOptions" | "classic10";
 type CardPick = { name: string; reversed: boolean };
 
-type ProfileRow = {
-  full_name: string | null;
-  birth_date: string | null;
-  birth_time: string | null;
-  role?: string | null;
-};
-
 const FULL_DECK: string[] = [
   "The Fool","The Magician","The High Priestess","The Empress","The Emperor",
   "The Hierophant","The Lovers","The Chariot","Strength","The Hermit",
@@ -121,23 +114,18 @@ async function fetchPromptContentBySystem(
 
 // --- Supabase client helper (Next 15-safe) ---
 async function getSupabase() {
-  // Next.js 15: cookies() returns a Promise
   const cookieStore = await cookies();
-
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // Return string | undefined as expected by @supabase/ssr
         get(name: string) {
           return cookieStore.get(name)?.value;
         },
-        // Use object form for Next 15 cookie setter
         set(name: string, value: string, options?: any) {
           cookieStore.set({ name, value, ...(options || {}) });
         },
-        // Remove cookie by setting empty value with maxAge 0
         remove(name: string, options?: any) {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
@@ -184,14 +172,14 @@ export async function POST(req: NextRequest) {
     };
 
     const body = await req.json().catch(() => ({}));
-    const mode: TarotMode = body?.mode;
+    const mode = (body?.mode ?? "") as TarotMode;
     if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
       return NextResponse.json({ ok: false, error: "INVALID_MODE" }, { status: 400 });
     }
 
     let topic: string | null = null;
     let payload: any = { submode: mode };
-    let prompt: string = "";
+    let prompt = "";
 
     if (mode === "threeCards") {
       const q = (body?.question ?? "").trim();
@@ -220,7 +208,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ----- build prompt: prefer DB template (admin-editable), fallback to static builders
-    const subtype = mode as string; // threeCards | weighOptions | classic10
+    const subtype = mode as string;
     const dbContent = await fetchPromptContentBySystem(supabase, SYSTEM_KEY, subtype);
 
     const cardsText = (() => {
@@ -290,7 +278,7 @@ export async function POST(req: NextRequest) {
         });
         analysis = completion.choices?.[0]?.message?.content?.trim() ?? "";
       }
-    } catch (_) {
+    } catch {
       analysis = "";
     }
 
@@ -304,7 +292,7 @@ export async function POST(req: NextRequest) {
         user_id: targetUserId,
         type: "tarot",
         title: topic ?? null,
-        payload, // JSON includes prompt_used + analysis
+        payload,
       })
       .select("id, created_at, title, payload")
       .single();

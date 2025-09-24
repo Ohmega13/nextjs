@@ -16,19 +16,23 @@ async function getSupabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options || {}) });
+          cookieStore.set({ name, value, ...(options ?? {}) });
         },
-        remove(name: string) {
-          cookieStore.delete(name);
+        remove(name: string, options?: any) {
+          // ใช้ set + maxAge:0 แทน delete()
+          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
         },
       },
-      headers: { "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "" },
+      headers: {
+        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+      },
     }
   );
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params;
     const supabase = await getSupabaseServer();
     const body = await req.json();
 
@@ -40,6 +44,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     if (userErr || !user) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
@@ -50,16 +55,13 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    const id = params?.id as string;
     const { key, title, system, subtype, content } = body;
-
     const { error } = await supabase
       .from("prompts")
       .update({ key, title, system, subtype, content })
       .eq("id", id);
 
     if (error) throw error;
-
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
@@ -69,8 +71,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params;
     const supabase = await getSupabaseServer();
 
     // auth & role check
@@ -81,6 +84,7 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
     if (userErr || !user) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
@@ -91,7 +95,6 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    const id = params?.id as string;
     const { error } = await supabase.from("prompts").delete().eq("id", id);
     if (error) throw error;
 
