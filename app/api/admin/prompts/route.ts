@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 async function getSupabaseServer() {
   // Next.js 15: cookies(), headers() เป็น async
@@ -28,12 +29,13 @@ async function getSupabaseServer() {
       },
       headers: {
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
       },
     }
   );
 }
 
-async function assertAdmin(supabase: any) {
+async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
   const {
     data: { user },
     error,
