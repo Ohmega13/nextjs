@@ -1,7 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 
 // --- constants ---
@@ -115,6 +115,7 @@ async function fetchPromptContentBySystem(
 // --- Supabase client helper (Next 15-safe) ---
 async function getSupabase() {
   const cookieStore = await cookies();
+  const headerStore = await headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -130,10 +131,16 @@ async function getSupabase() {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
+      headers: {
+        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
+      },
     }
   );
 }
 
+
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
