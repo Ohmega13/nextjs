@@ -147,10 +147,29 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = await getSupabase();
 
-    // auth ผู้เรียก
-    const { data: { user } } = await supabase.auth.getUser();
+    // auth ผู้เรียก (อ่านจาก cookie ก่อน, ถ้าไม่พบลองอ่านจาก Authorization: Bearer <token>)
+    let {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) {
-      return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+      const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+      const m = authHeader?.match(/^Bearer\s+(.+)$/i);
+      if (m?.[1]) {
+        try {
+          const byToken = await supabase.auth.getUser(m[1]);
+          user = byToken.data.user ?? null;
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "UNAUTHENTICATED" },
+        { status: 401, headers: { "WWW-Authenticate": "Bearer" } }
+      );
     }
 
     // โหลดโปรไฟล์ผู้เรียกเพื่อดู role
