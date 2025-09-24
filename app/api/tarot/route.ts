@@ -113,7 +113,7 @@ async function fetchPromptContentBySystem(
 }
 
 // --- Supabase client helper (Next 15-safe) ---
-async function getSupabase() {
+async function getSupabase(accessToken?: string) {
   const cookieStore = await cookies();
   const headerStore = await headers();
   return createServerClient(
@@ -135,6 +135,9 @@ async function getSupabase() {
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
         "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
       },
+      global: accessToken
+        ? { headers: { Authorization: `Bearer ${accessToken}` } }
+        : undefined,
     }
   );
 }
@@ -144,24 +147,21 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await getSupabase();
+    // Try to read Bearer token from header first so we can attach it to the client
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+    const bearer = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
+    const supabase = await getSupabase(bearer);
 
     // auth ผู้เรียก (อ่านจาก cookie ก่อน, ถ้าไม่พบลองอ่านจาก Authorization: Bearer <token>)
     let {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) {
-      const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
-      const m = authHeader?.match(/^Bearer\s+(.+)$/i);
-      if (m?.[1]) {
-        try {
-          const byToken = await supabase.auth.getUser(m[1]);
-          user = byToken.data.user ?? null;
-        } catch {
-          // ignore
-        }
-      }
+    if (!user && bearer) {
+      try {
+        const byToken = await supabase.auth.getUser(bearer);
+        user = byToken.data.user ?? null;
+      } catch { /* ignore */ }
     }
 
     if (!user) {
@@ -327,7 +327,10 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: error.message, details: (error as any)?.details ?? null, hint: (error as any)?.hint ?? null },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, reading: data }, { status: 200 });
