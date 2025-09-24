@@ -38,27 +38,26 @@ export default function AdminPromptsPage() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      // ดึง access_token ปัจจุบัน
-      const { data: sessionData, error } = await supabase.auth.getSession();
-      if (error) throw error;
+      // สร้าง URL ให้ชัดเจน และกัน cache ด้วย timestamp
+      const apiUrl = `/api/admin/prompts?system=${encodeURIComponent(selSystem)}&t=${Date.now()}`;
 
-      const token = sessionData.session?.access_token ?? "";
-
-      const res = await fetch(`/api/admin/prompts?system=${encodeURIComponent(selSystem)}`, {
+      // สำคัญ: ให้แน่ใจว่าคุกกี้ถูกแนบไปด้วย เพื่อให้ Supabase บน Route Handler อ่าน session ได้
+      const res = await fetch(apiUrl, {
         method: "GET",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        // สำคัญ: ให้แน่ใจว่าส่งคุกกี้ไปด้วย
         credentials: "include",
         cache: "no-store",
+        headers: { "Accept": "application/json" },
       });
 
       if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`fetch failed: ${res.status} ${t || res.statusText}`);
+        // อ่านรายละเอียด error จาก body เพื่อช่วยดีบัก
+        const bodyText = await res.text().catch(() => "");
+        throw new Error(`fetch failed: ${res.status} ${bodyText || res.statusText}`);
       }
 
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "fetch failed");
+
       setItems(json.items || []);
     } catch (e: any) {
       console.error(e);
@@ -99,6 +98,13 @@ export default function AdminPromptsPage() {
           className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded"
         >
           สร้างพรอมป์ใหม่
+        </button>
+
+        <button
+          onClick={() => fetchData(system)}
+          className="border px-3 py-2 rounded hover:bg-gray-50"
+        >
+          รีโหลด
         </button>
       </div>
 
