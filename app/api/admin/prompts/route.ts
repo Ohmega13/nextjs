@@ -3,11 +3,9 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
-/**
- * Supabase client for Next.js 15 Route Handlers
- * - ต้อง await cookies()/headers()
- * - adapter ของ cookies ต้องเป็นแบบ object form ของ Next 15
- */
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 async function getSupabaseServer() {
   const cookieStore = await cookies();
   const headerStore = await headers();
@@ -21,62 +19,41 @@ async function getSupabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options || {}) });
+          cookieStore.set({ name, value, ...(options ?? {}) });
         },
         remove(name: string, options?: any) {
-          // ใช้ set + maxAge:0 แทน delete เพื่อไม่ชน type
-          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
+          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
         },
       },
       headers: {
-        // เผื่อ Vercel/Proxy ต้องอ้าง host เดิม
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
       },
     }
   );
 }
 
-// ให้แน่ใจว่า route นี้ไม่โดน cache
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
-async function assertAdmin() {
-  const supabase = await getSupabaseServer();
-
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) {
-    return { ok: false as const, res: NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }) };
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (profile?.role !== "admin") {
-    return { ok: false as const, res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }) };
-  }
-
-  return { ok: true as const, supabase };
-}
-
-// GET /api/admin/prompts?system=tarot|natal|palm
+// GET /api/admin/prompts?system=tarot|natal|palm (optional)
 export async function GET(req: Request) {
   try {
-    const admin = await assertAdmin();
-    if (!admin.ok) return admin.res;
+    const supabase = await getSupabaseServer();
 
-    const url = new URL(req.url);
-    const system = url.searchParams.get("system") || undefined;
+    const { searchParams } = new URL(req.url);
+    const system = searchParams.get("system");
 
-    const query = admin.supabase!.from("prompts").select("*").order("updated_at", { ascending: false });
-    if (system) query.eq("system", system);
+    let query = supabase.from("prompts").select("*");
+    if (system) query = query.eq("system", system);
 
-    const { data, error } = await query;
-    if (error) throw error;
+    const { data, error, status } = await query.order("updated_at", { ascending: false });
 
-    return NextResponse.json({ ok: true, items: data ?? [] });
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: status || 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, items: data }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "fetch failed" }, { status: 500 });
   }
@@ -85,19 +62,28 @@ export async function GET(req: Request) {
 // POST /api/admin/prompts
 export async function POST(req: Request) {
   try {
-    const admin = await assertAdmin();
-    if (!admin.ok) return admin.res;
+    const supabase = await getSupabaseServer();
 
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json();
     const { key, title, system, subtype = null, content } = body ?? {};
 
-    const { error } = await admin.supabase!
+    const { data, error, status } = await supabase
       .from("prompts")
-      .insert({ key, title, system, subtype, content });
+      .insert({ key, title, system, subtype, content })
+      .select("id, updated_at")
+      .single();
 
-    if (error) throw error;
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: status || 500 }
+      );
+    }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(
+      { ok: true, id: data.id, updated_at: data.updated_at },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "create failed" }, { status: 500 });
   }
