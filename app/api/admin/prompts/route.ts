@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 
+export const dynamic = "force-dynamic";
+
 async function getSupabaseServer() {
   // Next.js 15: cookies(), headers() เป็น async
   const cookieStore = await cookies();
@@ -61,13 +63,19 @@ async function assertAdmin(supabase: any) {
 }
 
 // GET /api/admin/prompts
-export async function GET(_req: Request) {
+export async function GET(req: Request) {
   try {
     const supabase = await getSupabaseServer();
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
-    const { data, error } = await supabase.from("prompts").select("*");
+    const { searchParams } = new URL(req.url);
+    const system = searchParams.get("system");
+
+    let query = supabase.from("prompts").select("*");
+    if (system) query = query.eq("system", system);
+
+    const { data, error } = await query.order("updated_at", { ascending: false });
     if (error) throw error;
 
     return NextResponse.json({ ok: true, items: data });
@@ -87,10 +95,14 @@ export async function POST(req: Request) {
     const { key, title, system, subtype = null, content } = body ?? {};
 
     const insert = { key, title, system, subtype, content };
-    const { error } = await supabase.from("prompts").insert(insert);
+    const { data, error } = await supabase
+      .from("prompts")
+      .insert(insert)
+      .select("id, updated_at")
+      .single();
     if (error) throw error;
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, id: data.id, updated_at: data.updated_at });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "create failed" }, { status: 500 });
   }
