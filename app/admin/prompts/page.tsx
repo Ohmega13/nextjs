@@ -61,7 +61,7 @@ function PromptManager() {
     setLoading(true);
     try {
       const qs = filterSystem ? `?system=${filterSystem}` : "";
-      const res = await fetch(`/api/admin/prompts${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/prompts${qs}`, { cache: "no-store", credentials: "include" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "fetch fail");
       setItems(json.items as PromptRow[]);
@@ -82,6 +82,7 @@ function PromptManager() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(row),
+        credentials: "include",
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "save error");
@@ -95,7 +96,7 @@ function PromptManager() {
 
   async function handleDelete(id: string) {
     if (!confirm("ลบพรอมป์นี้ถาวร?")) return;
-    const res = await fetch(`/api/admin/prompts/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/admin/prompts/${id}`, { method: "DELETE", credentials: "include" });
     const json = await res.json();
     if (!json.ok) return alert(`ลบไม่สำเร็จ: ${json.error}`);
     fetchData();
@@ -114,6 +115,7 @@ function PromptManager() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, title, system, subtype: subtype || null, content }),
+        credentials: "include",
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "create error");
