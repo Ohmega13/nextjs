@@ -54,11 +54,22 @@ async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer
     .eq("user_id", user.id)
     .maybeSingle();
 
+  // ถ้าในตาราง profiles ยังไม่มีแถวของผู้ใช้ ให้ลองเช็คผ่านฟังก์ชัน is_admin(uid) ที่ฝั่ง DB
   if (profile?.role !== "admin") {
-    return {
-      ok: false as const,
-      res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-    };
+    try {
+      const { data: isAdminRpc } = await supabase.rpc("is_admin", { uid: user.id as string });
+      if (!isAdminRpc) {
+        return {
+          ok: false as const,
+          res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
+        };
+      }
+    } catch {
+      return {
+        ok: false as const,
+        res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
+      };
+    }
   }
 
   return { ok: true as const };
