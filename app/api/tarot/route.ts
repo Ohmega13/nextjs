@@ -1,4 +1,4 @@
-// app/api/tarot/route.ts
+// app/api/reading/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
@@ -138,7 +138,6 @@ async function getSupabase() {
     }
   );
 }
-
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -315,7 +314,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("readings")
       .insert({
-        user_id: targetUserId,       // subject (เจ้าของดวง)
+        user_id: targetUserId,       // subject (เจ้าของดวง) -> ต้องเท่ากับ auth.uid() หรือ admin ถึงจะผ่าน RLS
         created_by: user.id,         // คนกดเปิดไพ่ (ผู้สร้าง)
         client_id: targetUserId,     // อ้างถึงผู้ถูกอ่าน (ถ้ามีคอลัมน์นี้)
         type: "tarot",
