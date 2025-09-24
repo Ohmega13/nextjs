@@ -1,212 +1,151 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type PromptRow = {
   id: string;
-  key: string;
-  title: string;
-  system: "tarot" | "natal" | "palm";
+  key: string | null;
+  system: string | null;
   subtype: string | null;
-  content: string;
-  updated_at: string;
+  title: string | null;
+  content: string | null;
+  updated_at: string | null;
 };
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const SYSTEMS = [
+  { value: "tarot", label: "tarot" },
+  { value: "natal", label: "natal" },
+  { value: "palm", label: "palm" },
+];
 
 export default function AdminPromptsPage() {
-  const router = useRouter();
-  const [checked, setChecked] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.replace("/");
-        return;
-      }
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (error || data?.role !== "admin") {
-        router.replace("/");
-        return;
-      }
-      setIsAdmin(true);
-      setChecked(true);
-    })();
-  }, [router]);
-
-  if (!checked) return <div className="p-6">กำลังตรวจสอบสิทธิ์...</div>;
-  if (!isAdmin) return null;
-
-  return <PromptManager />;
-}
-
-function PromptManager() {
+  const [system, setSystem] = useState<string>("tarot");
   const [items, setItems] = useState<PromptRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [filterSystem, setFilterSystem] = useState<"" | "tarot" | "natal" | "palm">("");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  async function fetchData() {
+  // สร้าง Supabase client ฝั่ง browser เพื่อดึง access_token ของ user ที่ล็อกอินอยู่
+  const supabase = useMemo(() => {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: true, autoRefreshToken: true } }
+    );
+  }, []);
+
+  async function fetchData(selSystem: string) {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const qs = filterSystem ? `?system=${filterSystem}` : "";
-      const res = await fetch(`/api/admin/prompts${qs}`, { cache: "no-store", credentials: "include" });
+      // ดึง access_token ปัจจุบัน
+      const { data: sessionData, error } = await supabase.auth.getSession();
+      if (error) throw error;
+
+      const token = sessionData.session?.access_token ?? "";
+
+      const res = await fetch(`/api/admin/prompts?system=${encodeURIComponent(selSystem)}`, {
+        method: "GET",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        // สำคัญ: ให้แน่ใจว่าส่งคุกกี้ไปด้วย
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`fetch failed: ${res.status} ${t || res.statusText}`);
+      }
+
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "fetch fail");
-      setItems(json.items as PromptRow[]);
-    } catch (e) {
+      if (!json.ok) throw new Error(json.error || "fetch failed");
+      setItems(json.items || []);
+    } catch (e: any) {
       console.error(e);
+      setErrorMsg(e?.message || "โหลดข้อมูลไม่สำเร็จ");
       setItems([]);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { fetchData(); }, [filterSystem]);
-
-  async function handleSave(row: PromptRow) {
-    setSavingId(row.id);
-    try {
-      const res = await fetch(`/api/admin/prompts/${row.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
-        credentials: "include",
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "save error");
-    } catch (e) {
-      alert(`บันทึกไม่สำเร็จ: ${(e as Error).message}`);
-    } finally {
-      setSavingId(null);
-      fetchData();
-    }
-  }
-
-  async function handleDelete(id: string) {
-    if (!confirm("ลบพรอมป์นี้ถาวร?")) return;
-    const res = await fetch(`/api/admin/prompts/${id}`, { method: "DELETE", credentials: "include" });
-    const json = await res.json();
-    if (!json.ok) return alert(`ลบไม่สำเร็จ: ${json.error}`);
-    fetchData();
-  }
-
-  async function handleCreate() {
-    setCreating(true);
-    const key = prompt("ตั้ง key (เช่น tarot_threeCards):");
-    if (!key) { setCreating(false); return; }
-    const title = prompt("ตั้งชื่อแสดงผล:");
-    const system = (prompt("ระบบ (tarot | natal | palm):") || "").trim() as any;
-    const subtype = prompt("โหมดย่อย (เช่น threeCards | weighOptions | classic10 | thai | western) — เว้นว่างได้:");
-    const content = prompt("วางเนื้อพรอมป์เบื้องต้น:") || "";
-    try {
-      const res = await fetch("/api/admin/prompts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, title, system, subtype: subtype || null, content }),
-        credentials: "include",
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "create error");
-      fetchData();
-    } catch (e) {
-      alert(`สร้างไม่สำเร็จ: ${(e as Error).message}`);
-    } finally {
-      setCreating(false);
-    }
-  }
+  useEffect(() => {
+    fetchData(system);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [system]);
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">จัดการพรอมป์ (Admin)</h1>
+    <div className="max-w-4xl mx-auto px-6 py-10">
+      <h1 className="text-2xl font-bold mb-6">จัดการพรอมป์ (Admin)</h1>
 
-      <div className="flex items-center gap-3">
+      <div className="flex gap-3 items-center mb-6">
         <select
-          value={filterSystem}
-          onChange={(e) => setFilterSystem(e.target.value as any)}
-          className="border rounded-md px-3 py-2"
+          value={system}
+          onChange={(e) => setSystem(e.target.value)}
+          className="border rounded px-3 py-2"
         >
-          <option value="">ทั้งหมด</option>
-          <option value="tarot">tarot</option>
-          <option value="natal">natal</option>
-          <option value="palm">palm</option>
+          {SYSTEMS.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
         </select>
 
         <button
-          onClick={handleCreate}
-          disabled={creating}
-          className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50"
+          onClick={() => {
+            // ไปหน้า create (ถ้ามี) หรือจะเปิด modal ก็ได้
+            window.location.href = `/admin/prompts/new?system=${encodeURIComponent(system)}`;
+          }}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded"
         >
-          {creating ? "กำลังสร้าง..." : "สร้างพรอมป์ใหม่"}
+          สร้างพรอมป์ใหม่
         </button>
       </div>
 
-      {loading ? (
-        <p>กำลังโหลด...</p>
-      ) : (
-        <div className="space-y-4">
-          {items.map((it) => (
-            <div key={it.id} className="rounded-lg border p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs px-2 py-1 rounded-full bg-slate-100 border">
-                  {it.system}{it.subtype ? `/${it.subtype}` : ""}
-                </span>
-                <input
-                  className="border rounded-md px-2 py-1 min-w-[220px]"
-                  value={it.key}
-                  onChange={(e) => setItems(prev => prev.map(x => x.id === it.id ? { ...x, key: e.target.value } : x))}
-                />
-                <input
-                  className="border rounded-md px-2 py-1 min-w-[220px]"
-                  value={it.title}
-                  onChange={(e) => setItems(prev => prev.map(x => x.id === it.id ? { ...x, title: e.target.value } : x))}
-                />
-              </div>
-
-              <textarea
-                className="mt-3 w-full min-h-[200px] border rounded-md p-3 font-mono text-sm"
-                value={it.content}
-                onChange={(e) => setItems(prev => prev.map(x => x.id === it.id ? { ...x, content: e.target.value } : x))}
-              />
-
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  onClick={() => handleSave(it)}
-                  disabled={savingId === it.id}
-                  className="px-3 py-2 rounded-md bg-emerald-600 text-white disabled:opacity-50"
-                >
-                  {savingId === it.id ? "กำลังบันทึก..." : "บันทึก"}
-                </button>
-                <button
-                  onClick={() => handleDelete(it.id)}
-                  className="px-3 py-2 rounded-md border hover:bg-slate-50"
-                >
-                  ลบ
-                </button>
-                <span className="ml-auto text-xs text-slate-500">
-                  อัปเดตล่าสุด: {new Date(it.updated_at).toLocaleString()}
-                </span>
-              </div>
-            </div>
-          ))}
-          {items.length === 0 && <p className="text-slate-500">ไม่มีพรอมป์</p>}
-        </div>
+      {loading && <p>กำลังโหลด…</p>}
+      {errorMsg && (
+        <p className="text-red-600 mb-4">
+          {errorMsg}
+        </p>
       )}
 
-      <p className="text-xs text-slate-500">
-        ตัวแปรที่ใช้บ่อย: {"{{full_name}} {{dob}} {{birth_time}} {{birth_place}} {{question}} {{options}} {{cards}} ฯลฯ"}
-        (จะมาเชื่อมตอนเรียกใช้ใน API ของแต่ละโหมด)
+      {(!loading && items.length === 0) && (
+        <p className="text-gray-500">ไม่พบพรอมป์</p>
+      )}
+
+      <div className="space-y-4">
+        {items.map((it) => (
+          <div key={it.id} className="border rounded p-4">
+            <div className="flex justify-between items-start gap-3">
+              <div>
+                <div className="font-semibold">{it.title || "(ไม่มีชื่อ)"}</div>
+                <div className="text-sm text-gray-500">
+                  system: {it.system || "-"} | subtype: {it.subtype || "-"} | key: {it.key || "-"}
+                </div>
+                <div className="text-xs text-gray-400">
+                  updated: {it.updated_at ? new Date(it.updated_at).toLocaleString() : "-"}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <a
+                  href={`/admin/prompts/${it.id}`}
+                  className="px-3 py-1.5 rounded border hover:bg-gray-50"
+                >
+                  แก้ไข
+                </a>
+              </div>
+            </div>
+            {it.content && (
+              <pre className="mt-3 whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">
+                {it.content}
+              </pre>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-8 text-xs text-gray-400">
+        ตัวแปรที่ใช้บ่อย: {{}}full_name}}, {{}}dob}}, {{}}birth_time}}, {{}}birth_place}}, {{}}question}}, {{}}options}}, {{}}cards}}
       </p>
     </div>
   );
