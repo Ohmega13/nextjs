@@ -117,22 +117,26 @@ async function fetchPromptContentBySystem(
 }
 
 // --- Supabase client helper (Next 15-safe) ---
-function getSupabase() {
-  const cookieStore = cookies();
+async function getSupabase() {
+  // Next.js 15: cookies() returns a Promise
+  const cookieStore = await cookies();
+
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
+        // Return string | undefined as expected by @supabase/ssr
         get(name: string) {
-          const c = cookieStore.get(name);
-          return c ? { name: c.name, value: c.value } : undefined;
+          return cookieStore.get(name)?.value;
         },
+        // Use object form for Next 15 cookie setter
         set(name: string, value: string, options?: any) {
           cookieStore.set({ name, value, ...(options || {}) });
         },
-        remove(name: string) {
-          cookieStore.delete(name);
+        // Remove cookie by setting empty value with maxAge 0
+        remove(name: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
       },
     }
@@ -143,7 +147,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = getSupabase();
+    const supabase = await getSupabase();
 
     // auth ผู้เรียก
     const { data: { user } } = await supabase.auth.getUser();

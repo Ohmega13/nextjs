@@ -1,6 +1,6 @@
 // app/api/natal/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 /**
@@ -9,6 +9,7 @@ import { createServerClient } from "@supabase/ssr";
  */
 async function getSupabaseServer() {
   const cookieStore = await cookies();
+  const headerStore = headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +28,9 @@ async function getSupabaseServer() {
         remove(name: string, options?: any) {
           cookieStore.set({ name, value: "", ...(options || {}), maxAge: 0 });
         },
+      },
+      headers: {
+        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
       },
     }
   );
