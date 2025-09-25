@@ -148,23 +148,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const __debug: any = { step: "start" };
   try {
     // Try to read Bearer token from header first so we can attach it to the client
     const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
     const bearer = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
     const supabase = await getSupabase(bearer);
 
-    // auth ผู้เรียก (อ่านจาก cookie ก่อน, ถ้าไม่พบลองอ่านจาก Authorization: Bearer <token>)
-    let {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user && bearer) {
-      try {
-        const byToken = await supabase.auth.getUser(bearer);
-        user = byToken.data.user ?? null;
-      } catch { /* ignore */ }
-    }
+    // auth ผู้เรียก (อ่านจาก session/cookie หรือ Authorization: Bearer)
+    let { data: { user } } = await supabase.auth.getUser();
+    __debug.hasBearer = !!bearer;
+    __debug.hasUser = !!user;
 
     if (!user) {
       logError("unauthenticated request", { hasBearer: !!bearer });
@@ -184,6 +178,7 @@ export async function POST(req: NextRequest) {
     // รองรับแอดมินทำรายการแทนลูกดวงผ่าน header x-ddt-target-user
     const targetHeader = req.headers.get("x-ddt-target-user");
     const isAdmin = meProfile?.role === "admin";
+    __debug.isAdmin = isAdmin;
     const targetUserId = isAdmin && targetHeader ? targetHeader : user.id;
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
@@ -289,12 +284,16 @@ export async function POST(req: NextRequest) {
         prompt = buildClassic10Prompt(userBrief, payload.slots);
       }
     }
+    __debug.promptLen = (prompt || "").length;
 
     // --- Generate analysis from prompt (optional) ---
     let analysis = "";
     try {
-      if (process.env.OPENAI_API_KEY) {
+      if (!process.env.OPENAI_API_KEY) {
+        __debug.openai = { called: false, reason: "missing_api_key" };
+      } else {
         const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        __debug.openai = { called: true };
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           temperature: 0.7,
@@ -309,9 +308,11 @@ export async function POST(req: NextRequest) {
           ],
         });
         analysis = completion.choices?.[0]?.message?.content?.trim() ?? "";
+        __debug.analysisLen = analysis.length;
       }
-    } catch (err) {
-      logError("OpenAI error", (err as any)?.message ?? err);
+    } catch (err: any) {
+      logError("OpenAI error", err?.message ?? err);
+      __debug.openaiError = String(err?.message ?? err);
       analysis = "";
     }
 
@@ -332,6 +333,7 @@ export async function POST(req: NextRequest) {
     } catch {
       clientId = null;
     }
+    __debug.hasClientId = !!clientId;
 
     const insertPayload: any = {
       user_id: targetUserId,       // subject (เจ้าของดวง)
@@ -358,15 +360,17 @@ export async function POST(req: NextRequest) {
     if (error) {
       logError("Supabase insert error", { error, _debugInsert });
       return NextResponse.json(
-        { ok: false, error: error.message, details: (error as any)?.details ?? null, hint: (error as any)?.hint ?? null },
+        { ok: false, error: error.message, details: (error as any)?.details ?? null, hint: (error as any)?.hint ?? null, debug: __debug },
         { status: 500 }
       );
     }
 
-    const adminDebug = isAdmin ? { prompt_used: prompt ? "yes" : "no" } : undefined;
-    return NextResponse.json({ ok: true, reading: data, debug: adminDebug }, { status: 200 });
+    if (isAdmin) __debug.prompt_used = !!prompt;
+    // minimal trace end
+    console.log("[api/tarot] done", __debug);
+    return NextResponse.json({ ok: true, reading: data, debug: isAdmin ? __debug : undefined }, { status: 200 });
   } catch (e: any) {
     logError("Unhandled error", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN", debug: __debug }, { status: 500 });
   }
 }
