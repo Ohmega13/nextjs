@@ -275,6 +275,14 @@ export async function POST(req: NextRequest) {
     const bearer = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
     const supabase = await getSupabase(bearer);
 
+    // parse request body early so we can use target user
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
     // auth ผู้เรียก (อ่านจาก session/cookie หรือ Authorization: Bearer)
     let { data: { user } } = await supabase.auth.getUser();
     __debug.hasBearer = !!bearer;
@@ -295,11 +303,15 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    // รองรับแอดมินทำรายการแทนลูกดวงผ่าน header x-ddt-target-user
+    // รองรับแอดมินทำรายการแทนลูกดวงผ่าน header x-ddt-target-user หรือ body
     const targetHeader = req.headers.get("x-ddt-target-user");
     const isAdmin = meProfile?.role === "admin";
     __debug.isAdmin = isAdmin;
-    const targetUserId = isAdmin && targetHeader ? targetHeader : user.id;
+    const targetBody = body?.targetUserId || body?.target_user_id;
+    const targetUserId = isAdmin && (targetHeader || targetBody)
+      ? (targetHeader || targetBody)
+      : user.id;
+    __debug.targetUserId = targetUserId;
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
@@ -314,7 +326,6 @@ export async function POST(req: NextRequest) {
       birthTime: profile?.birth_time ?? undefined,
     };
 
-    const body = await req.json().catch(() => ({}));
     const mode = (body?.mode ?? "") as TarotMode;
     if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
       return NextResponse.json({ ok: false, error: "INVALID_MODE" }, { status: 400 });
