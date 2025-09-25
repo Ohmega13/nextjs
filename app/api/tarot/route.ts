@@ -115,15 +115,22 @@ async function fetchPromptContentBySystem(
 }
 
 async function callOpenAIWithRetry(promptText: string) {
-  const tried: Array<{ model: string; ok: boolean; error?: string; len?: number }> = [];
+  const tried: Array<{ model: string; api: string; ok: boolean; error?: string; len?: number }> = [];
   if (!process.env.OPENAI_API_KEY) {
     return { text: "", tried, reason: "missing_api_key" as const };
   }
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    // allow proxy/compatible gateways
+    baseURL: process.env.OPENAI_BASE_URL || undefined,
+  });
 
   const models = ["gpt-4o-mini", "gpt-4o"];
+
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
+      // --- 1) Try Chat Completions API
       try {
         const completion = await openai.chat.completions.create({
           model,
@@ -139,16 +146,49 @@ async function callOpenAIWithRetry(promptText: string) {
           ],
         });
         const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
-        tried.push({ model, ok: true, len: text.length });
+        tried.push({ model, api: "chat.completions", ok: true, len: text.length });
         if (text) return { text, tried };
       } catch (e: any) {
-        const msg = String(e?.message ?? e);
-        tried.push({ model, ok: false, error: msg });
-        if (attempt === 1) await new Promise((r) => setTimeout(r, 400));
+        tried.push({ model, api: "chat.completions", ok: false, error: String(e?.message ?? e) });
       }
+
+      // --- 2) Fallback: Responses API (some gateways disable chat.completions)
+      try {
+        const resp = await openai.responses.create({
+          model,
+          temperature: 0.7,
+          max_output_tokens: 1200,
+          input: [
+            { role: "system", content: "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น" },
+            { role: "user", content: promptText },
+          ],
+        } as any);
+
+        // responses API shapes can vary by SDK version; normalize to text
+        let text = "";
+        try {
+          // SDK 4.56+: output_text helper
+          // @ts-ignore
+          text = (resp as any).output_text?.() ?? "";
+        } catch {}
+        if (!text) {
+          const out = (resp as any).output || (resp as any).choices || [];
+          const first = Array.isArray(out) ? out[0] : undefined;
+          text = first?.message?.content?.[0]?.text || first?.message?.content || "";
+        }
+        text = (typeof text === "string" ? text : JSON.stringify(text)).trim();
+        tried.push({ model, api: "responses", ok: true, len: text.length });
+        if (text) return { text, tried };
+      } catch (e: any) {
+        tried.push({ model, api: "responses", ok: false, error: String(e?.message ?? e) });
+      }
+
+      // brief backoff before next attempt
+      await new Promise((r) => setTimeout(r, 400));
     }
   }
-  return { text: "", tried };
+
+  return { text: "", tried, reason: "no_text" as const };
 }
 
 function buildLocalFallback(mode: TarotMode, payload: any) {
@@ -349,6 +389,7 @@ export async function POST(req: NextRequest) {
       }
     }
     __debug.promptLen = (prompt || "").length;
+    __debug.hasPrompt = !!prompt;
 
     /* --- Generate analysis from prompt (robust with retry + fallback) --- */
     let analysis = "";
@@ -361,6 +402,7 @@ export async function POST(req: NextRequest) {
         __debug.openaiFallbackUsed = true;
       }
       __debug.analysisLen = analysis.length;
+      __debug.analysisPreview = analysis.slice(0, 120);
     } catch (err: any) {
       logError("OpenAI error", err?.message ?? err);
       __debug.openaiError = String(err?.message ?? err);
@@ -424,7 +466,18 @@ export async function POST(req: NextRequest) {
 
     if (isAdmin) __debug.prompt_used = !!prompt;
     // minimal trace end
-    console.log("[api/tarot] done", __debug);
+    console.log("[api/tarot] done", {
+      step: __debug.step,
+      hasBearer: __debug.hasBearer,
+      hasUser: __debug.hasUser,
+      isAdmin: __debug.isAdmin,
+      promptLen: __debug.promptLen,
+      hasPrompt: __debug.hasPrompt,
+      openai: { called: !!__debug.openai, tried: __debug.openai?.tried, reason: __debug.openai?.reason },
+      analysisLen: __debug.analysisLen,
+      hasClientId: __debug.hasClientId,
+      prompt_used: !!payload?.prompt_used,
+    });
     return NextResponse.json({ ok: true, reading: data, debug: isAdmin ? __debug : undefined }, { status: 200 });
   } catch (e: any) {
     logError("Unhandled error", e);
