@@ -319,6 +319,11 @@ export async function POST(req: NextRequest) {
     // ผูก prompt และผลวิเคราะห์ไว้ใน payload
     payload = { ...payload, prompt_used: prompt, analysis };
 
+    // เนื้อหาที่จะเก็บลงคอลัมน์ content (ให้ UI อ่านได้ทันที)
+    const contentText = analysis && analysis.trim().length > 0
+      ? analysis.trim()
+      : "ขออภัย ระบบยังไม่สามารถสร้างคำทำนายได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง";
+
     // บันทึกลง Supabase (ใช้ RLS + cookies auth)
     // พยายามหา client เดิมของผู้ถูกอ่าน (ถ้าไม่มีจะไม่ส่ง client_id เพื่อหลีกเลี่ยง FK ผิดพลาด)
     let clientId: string | null = null;
@@ -343,6 +348,7 @@ export async function POST(req: NextRequest) {
       topic: topic ?? null,        // หัวข้อถาม
       title: (topic ?? titleText ?? ""),
       payload,
+      content: contentText,
     };
     if (clientId) {
       insertPayload.client_id = clientId;
@@ -354,7 +360,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("readings")
       .insert(insertPayload)
-      .select("id, created_at, type, mode, topic, title, payload")
+      .select("id, created_at, type, mode, topic, title, payload, content")
       .single();
 
     if (error) {
