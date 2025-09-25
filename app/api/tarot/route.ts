@@ -6,6 +6,8 @@ import OpenAI from "openai";
 
 // --- constants ---
 const SYSTEM_KEY = "tarot" as const;
+const DEBUG_TAG = "[api/tarot]";
+const logError = (...args: any[]) => console.error(DEBUG_TAG, ...args);
 
 // --- Types ---
 type TarotMode = "threeCards" | "weighOptions" | "classic10";
@@ -165,6 +167,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!user) {
+      logError("unauthenticated request", { hasBearer: !!bearer });
       return NextResponse.json(
         { ok: false, error: "UNAUTHENTICATED" },
         { status: 401, headers: { "WWW-Authenticate": "Bearer" } }
@@ -205,6 +208,7 @@ export async function POST(req: NextRequest) {
     let topic: string | null = null;
     let payload: any = { submode: mode };
     let prompt = "";
+    let titleText = ""; // ensure non-null title for DB
 
     if (mode === "threeCards") {
       const q = (body?.question ?? "").trim();
@@ -212,6 +216,7 @@ export async function POST(req: NextRequest) {
       const cards = pickCards(3);
       topic = q;
       payload = { ...payload, question: q, cards };
+      titleText = `ถามเรื่องเดียว 3 ใบ`;
     }
 
     if (mode === "weighOptions") {
@@ -223,6 +228,7 @@ export async function POST(req: NextRequest) {
       const cards = pickCards(_opts.length);
       const pairs = _opts.map((option: string, i: number) => ({ option, card: cards[i] }));
       payload = { ...payload, options: _opts, pairs };
+      titleText = `ชั่งน้ำหนักตัวเลือก`;
     }
 
     if (mode === "classic10") {
@@ -230,6 +236,7 @@ export async function POST(req: NextRequest) {
       const slots = CELTIC_SLOTS.map((s, i) => ({ pos: s.no, label: s.label, card: cards[i] }));
       payload = { ...payload, slots };
       topic = null;
+      titleText = `แบบคลาสสิก 10 ใบ`;
     }
 
     // ----- build prompt: prefer DB template (admin-editable), fallback to static builders
@@ -303,7 +310,8 @@ export async function POST(req: NextRequest) {
         });
         analysis = completion.choices?.[0]?.message?.content?.trim() ?? "";
       }
-    } catch {
+    } catch (err) {
+      logError("OpenAI error", (err as any)?.message ?? err);
       analysis = "";
     }
 
@@ -331,12 +339,15 @@ export async function POST(req: NextRequest) {
       type: "tarot",
       mode,                        // threeCards | weighOptions | classic10
       topic: topic ?? null,        // หัวข้อถาม
-      title: topic ?? null,        // title ใช้ซ้ำกับ topic เพื่อรองรับ UI เดิม
+      title: (topic ?? titleText ?? ""),
       payload,
     };
     if (clientId) {
       insertPayload.client_id = clientId;
     }
+
+    // minimal debug footprint
+    const _debugInsert = { mode, hasClientId: !!clientId, hasPrompt: !!prompt, topicLen: (topic ?? "").length };
 
     const { data, error } = await supabase
       .from("readings")
@@ -345,14 +356,17 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
+      logError("Supabase insert error", { error, _debugInsert });
       return NextResponse.json(
         { ok: false, error: error.message, details: (error as any)?.details ?? null, hint: (error as any)?.hint ?? null },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, reading: data }, { status: 200 });
+    const adminDebug = isAdmin ? { prompt_used: prompt ? "yes" : "no" } : undefined;
+    return NextResponse.json({ ok: true, reading: data, debug: adminDebug }, { status: 200 });
   } catch (e: any) {
+    logError("Unhandled error", e);
     return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN" }, { status: 500 });
   }
 }
