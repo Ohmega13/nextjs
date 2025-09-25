@@ -122,68 +122,83 @@ async function callOpenAIWithRetry(promptText: string) {
 
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    // allow proxy/compatible gateways
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   });
 
+  const SYSTEM_MSG =
+    "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น";
+
   const models = ["gpt-4o-mini", "gpt-4o"];
+
+  const normalize = (val: any) => {
+    if (!val) return "";
+    if (typeof val === "string") return val;
+    if (Array.isArray(val)) {
+      const first = val[0];
+      if (first?.message?.content) {
+        const c = first.message.content;
+        if (typeof c === "string") return c;
+        if (Array.isArray(c) && c[0]?.text) return c[0].text;
+      }
+    }
+    // some SDKs expose .output_text() helper
+    try {
+      // @ts-ignore
+      const ot = val.output_text?.();
+      if (typeof ot === "string" && ot.trim()) return ot;
+    } catch {}
+    // fallback to JSON string
+    return JSON.stringify(val);
+  };
 
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
-      // --- 1) Try Chat Completions API
+      // 1) Try Chat Completions
       try {
         const completion = await openai.chat.completions.create({
           model,
           temperature: 0.7,
           max_tokens: 1200,
           messages: [
-            {
-              role: "system",
-              content:
-                "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น",
-            },
+            { role: "system", content: SYSTEM_MSG },
             { role: "user", content: promptText },
           ],
         });
-        const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
+        const text =
+          completion.choices?.[0]?.message?.content?.trim?.() ?? "";
         tried.push({ model, api: "chat.completions", ok: true, len: text.length });
         if (text) return { text, tried };
       } catch (e: any) {
-        tried.push({ model, api: "chat.completions", ok: false, error: String(e?.message ?? e) });
+        tried.push({
+          model,
+          api: "chat.completions",
+          ok: false,
+          error: String(e?.message ?? e),
+        });
       }
 
-      // --- 2) Fallback: Responses API (some gateways disable chat.completions)
+      // 2) Fallback: Responses API (use simple string input for compatibility)
       try {
         const resp = await openai.responses.create({
           model,
           temperature: 0.7,
           max_output_tokens: 1200,
-          input: [
-            { role: "system", content: "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น" },
-            { role: "user", content: promptText },
-          ],
+          input: `SYSTEM:\n${SYSTEM_MSG}\n\nUSER:\n${promptText}`,
         } as any);
 
-        // responses API shapes can vary by SDK version; normalize to text
-        let text = "";
-        try {
-          // SDK 4.56+: output_text helper
-          // @ts-ignore
-          text = (resp as any).output_text?.() ?? "";
-        } catch {}
-        if (!text) {
-          const out = (resp as any).output || (resp as any).choices || [];
-          const first = Array.isArray(out) ? out[0] : undefined;
-          text = first?.message?.content?.[0]?.text || first?.message?.content || "";
-        }
-        text = (typeof text === "string" ? text : JSON.stringify(text)).trim();
+        const text = normalize(resp).trim();
         tried.push({ model, api: "responses", ok: true, len: text.length });
         if (text) return { text, tried };
       } catch (e: any) {
-        tried.push({ model, api: "responses", ok: false, error: String(e?.message ?? e) });
+        tried.push({
+          model,
+          api: "responses",
+          ok: false,
+          error: String(e?.message ?? e),
+        });
       }
 
-      // brief backoff before next attempt
+      // small backoff
       await new Promise((r) => setTimeout(r, 400));
     }
   }
@@ -250,6 +265,7 @@ async function getSupabase(accessToken?: string) {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const __debug: any = { step: "start" };
