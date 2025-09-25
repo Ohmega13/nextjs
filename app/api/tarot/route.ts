@@ -1,4 +1,4 @@
-// app/api/reading/tarot/route.ts
+// app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
@@ -311,18 +311,36 @@ export async function POST(req: NextRequest) {
     payload = { ...payload, prompt_used: prompt, analysis };
 
     // บันทึกลง Supabase (ใช้ RLS + cookies auth)
+    // พยายามหา client เดิมของผู้ถูกอ่าน (ถ้าไม่มีจะไม่ส่ง client_id เพื่อหลีกเลี่ยง FK ผิดพลาด)
+    let clientId: string | null = null;
+    try {
+      const { data: clientRow } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("user_id", targetUserId)
+        .limit(1)
+        .maybeSingle();
+      clientId = clientRow?.id ?? null;
+    } catch {
+      clientId = null;
+    }
+
+    const insertPayload: any = {
+      user_id: targetUserId,       // subject (เจ้าของดวง)
+      created_by: user.id,         // คนกดเปิดไพ่
+      type: "tarot",
+      mode,                        // threeCards | weighOptions | classic10
+      topic: topic ?? null,        // หัวข้อถาม
+      title: topic ?? null,        // title ใช้ซ้ำกับ topic เพื่อรองรับ UI เดิม
+      payload,
+    };
+    if (clientId) {
+      insertPayload.client_id = clientId;
+    }
+
     const { data, error } = await supabase
       .from("readings")
-      .insert({
-        user_id: targetUserId,       // subject (เจ้าของดวง) -> ต้องเท่ากับ auth.uid() หรือ admin ถึงจะผ่าน RLS
-        created_by: user.id,         // คนกดเปิดไพ่ (ผู้สร้าง)
-        client_id: targetUserId,     // อ้างถึงผู้ถูกอ่าน (ถ้ามีคอลัมน์นี้)
-        type: "tarot",
-        mode,                        // threeCards | weighOptions | classic10
-        topic: topic ?? null,        // เก็บหัวข้อถามแยกต่างหาก
-        title: topic ?? null,        // title อาจซ้ำกับ topic เพื่อให้ UI เดิมทำงาน
-        payload,
-      })
+      .insert(insertPayload)
       .select("id, created_at, type, mode, topic, title, payload")
       .single();
 
