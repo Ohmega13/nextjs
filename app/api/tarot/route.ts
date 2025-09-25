@@ -505,7 +505,16 @@ export async function POST(req: NextRequest) {
       hasClientId: __debug.hasClientId,
       prompt_used: !!payload?.prompt_used,
     });
-    return NextResponse.json({ ok: true, reading: data, debug: isAdmin ? __debug : undefined }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        reading: data,
+        // expose plain analysis text for immediate UI display (non-breaking)
+        analysis: contentText,
+        debug: isAdmin ? __debug : undefined,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     logError("Unhandled error", e);
     return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN", debug: __debug }, { status: 500 });
