@@ -114,6 +114,70 @@ async function fetchPromptContentBySystem(
   return data.content ?? null;
 }
 
+async function callOpenAIWithRetry(promptText: string) {
+  const tried: Array<{ model: string; ok: boolean; error?: string; len?: number }> = [];
+  if (!process.env.OPENAI_API_KEY) {
+    return { text: "", tried, reason: "missing_api_key" as const };
+  }
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const models = ["gpt-4o-mini", "gpt-4o"];
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model,
+          temperature: 0.7,
+          max_tokens: 1200,
+          messages: [
+            {
+              role: "system",
+              content:
+                "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น",
+            },
+            { role: "user", content: promptText },
+          ],
+        });
+        const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
+        tried.push({ model, ok: true, len: text.length });
+        if (text) return { text, tried };
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        tried.push({ model, ok: false, error: msg });
+        if (attempt === 1) await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+  }
+  return { text: "", tried };
+}
+
+function buildLocalFallback(mode: TarotMode, payload: any) {
+  const faceLocal = (c: CardPick) => `${c.name}${c.reversed ? " (กลับหัว)" : ""}`;
+  if (mode === "threeCards") {
+    const cards = (payload.cards as CardPick[]).map((c) => faceLocal(c)).join(", ");
+    return `สรุปเบื้องต้นจากไพ่ 3 ใบ: ${cards}
+- แนวโน้ม: เชื่อมโยงภาพรวมของทั้งสามใบกับคำถาม
+- คำแนะนำ: ตั้งสติ วางแผนเป็นขั้นตอน และทบทวนสิ่งที่ควบคุมได้/ไม่ได้`;
+  }
+  if (mode === "weighOptions") {
+    const pairs = (payload.pairs as { option: string; card: CardPick }[])
+      .map((p) => `${p.option}: ${faceLocal(p.card)}`)
+      .join(" | ");
+    return `สรุปเบื้องต้นการชั่งน้ำหนักตัวเลือก: ${pairs}
+- เปรียบเทียบจุดแข็ง/เงื่อนไขของแต่ละทางเลือก แล้วเลือกอันที่สอดคล้องเป้าหมายที่สุด`;
+  }
+  if (mode === "classic10") {
+    const lines = (payload.slots as { pos: number; label: string; card: CardPick }[])
+      .sort((a, b) => a.pos - b.pos)
+      .map((s) => `${s.pos}. ${s.label}: ${faceLocal(s.card)}`)
+      .join("\n");
+    return `สรุปเบื้องต้น (Celtic Cross):
+${lines}
+- ภาพรวม: ประเมินปัจจุบัน-อดีต-อนาคตใกล้ ปัจจัยภายใน/ภายนอก แล้วจัดลำดับแผนการ`;
+  }
+  return "";
+}
+
 // --- Supabase client helper (Next 15-safe) ---
 async function getSupabase(accessToken?: string) {
   const cookieStore = await cookies();
@@ -286,34 +350,21 @@ export async function POST(req: NextRequest) {
     }
     __debug.promptLen = (prompt || "").length;
 
-    // --- Generate analysis from prompt (optional) ---
+    /* --- Generate analysis from prompt (robust with retry + fallback) --- */
     let analysis = "";
     try {
-      if (!process.env.OPENAI_API_KEY) {
-        __debug.openai = { called: false, reason: "missing_api_key" };
-      } else {
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        __debug.openai = { called: true };
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0.7,
-          max_tokens: 900,
-          messages: [
-            {
-              role: "system",
-              content:
-                "คุณคือหมอดูไพ่ยิปซีภาษาไทย ให้คำอธิบายกระชับ ชัดเจน เป็นขั้นเป็นตอน และอิงตามไพ่ที่เปิดได้เท่านั้น",
-            },
-            { role: "user", content: prompt },
-          ],
-        });
-        analysis = completion.choices?.[0]?.message?.content?.trim() ?? "";
-        __debug.analysisLen = analysis.length;
+      const result = await callOpenAIWithRetry(prompt);
+      __debug.openai = { called: true, tried: result.tried, reason: result.reason };
+      analysis = result.text?.trim() || "";
+      if (!analysis) {
+        analysis = buildLocalFallback(mode, payload);
+        __debug.openaiFallbackUsed = true;
       }
+      __debug.analysisLen = analysis.length;
     } catch (err: any) {
       logError("OpenAI error", err?.message ?? err);
       __debug.openaiError = String(err?.message ?? err);
-      analysis = "";
+      analysis = buildLocalFallback(mode, payload);
     }
 
     // ผูก prompt และผลวิเคราะห์ไว้ใน payload
