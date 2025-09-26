@@ -531,14 +531,23 @@ export async function POST(req: NextRequest) {
       prompt_used: !!payload?.prompt_used,
       fallbackUsed: __debug.openaiFallbackUsed === true,
     });
+    __debug.promptPreview = (prompt || '').slice(0, 160);
     return NextResponse.json(
       {
         ok: true,
         reading: data,
-        // Expose final text explicitly (keep legacy key too)
         content: contentText,
         analysis: contentText,
-        debug: isAdmin ? __debug : undefined,
+        // Always include minimal debug to diagnose client-side quickly
+        debug: {
+          hasUser: __debug.hasUser,
+          isAdmin: __debug.isAdmin,
+          promptLen: __debug.promptLen,
+          analysisLen: __debug.analysisLen,
+          promptPreview: __debug.promptPreview,
+          openai: __debug.openai,
+          fallbackUsed: __debug.openaiFallbackUsed === true,
+        },
       },
       { status: 200 }
     );
