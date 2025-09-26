@@ -111,7 +111,17 @@ export default function TarotReadingPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      if (role === 'admin' && clientId) headers['x-ddt-target-user'] = clientId;
+      if (role === 'admin' && clientId) {
+        // Map clients.id -> profiles.user_id so API receives the expected user_id
+        const { data: c } = await supabase
+          .from('clients')
+          .select('user_id')
+          .eq('id', clientId)
+          .maybeSingle();
+        if (c?.user_id) {
+          headers['x-ddt-target-user'] = c.user_id;
+        }
+      }
     } catch {}
 
     setIsDrawing(true);
@@ -246,7 +256,7 @@ export default function TarotReadingPage() {
           .from('readings')
           .select('id, created_at, topic, payload')
           .eq('user_id', targetUserId)
-          .eq('mode', 'tarot')
+          .eq('type', 'tarot')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
