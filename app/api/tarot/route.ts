@@ -7,6 +7,11 @@ import OpenAI from "openai";
 // --- constants ---
 const SYSTEM_KEY = "tarot" as const;
 const DEBUG_TAG = "[api/tarot]";
+const getOpenAIKey = () =>
+  process.env.OPENAI_API_KEY ||
+  (process.env as any).OPENAI_APIKEY ||
+  (process.env as any).OPENAI_KEY ||
+  "";
 const logError = (...args: any[]) => console.error(DEBUG_TAG, ...args);
 
 // --- Types ---
@@ -116,12 +121,12 @@ async function fetchPromptContentBySystem(
 
 async function callOpenAIWithRetry(promptText: string) {
   const tried: Array<{ model: string; api: string; ok: boolean; error?: string; len?: number }> = [];
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getOpenAIKey()) {
     return { text: "", tried, reason: "missing_api_key" as const };
   }
 
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: getOpenAIKey(),
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   });
 
@@ -509,7 +514,8 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         reading: data,
-        // expose plain analysis text for immediate UI display (non-breaking)
+        // Expose final text explicitly (keep legacy key too)
+        content: contentText,
         analysis: contentText,
         debug: isAdmin ? __debug : undefined,
       },
