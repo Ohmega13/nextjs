@@ -152,6 +152,17 @@ async function callOpenAIWithRetry(promptText: string) {
       const ot = val.output_text?.();
       if (typeof ot === "string" && ot.trim()) return ot;
     } catch {}
+    // Additional normalization for common Responses API shapes
+    if (val?.output && Array.isArray(val.output) && val.output[0]?.content && Array.isArray(val.output[0].content)) {
+      const first = val.output[0].content.find((c: any) => c?.text?.value) || val.output[0].content[0];
+      const maybe = first?.text?.value || first?.text || "";
+      if (typeof maybe === "string" && maybe.trim()) return maybe;
+    }
+    if (val?.choices && Array.isArray(val.choices) && val.choices[0]?.message?.content) {
+      const c = val.choices[0].message.content;
+      if (typeof c === "string" && c.trim()) return c;
+      if (Array.isArray(c) && c[0]?.text) return c[0].text;
+    }
     // fallback to JSON string
     return JSON.stringify(val);
   };
@@ -405,12 +416,20 @@ export async function POST(req: NextRequest) {
         : ""),
     };
 
-    if (dbContent) {
+    // If DB content exists but is effectively empty after templating, ignore it
+    // and fall back to local builders.
+    const renderedFromDB = (() => {
+      if (!dbContent) return "";
       let t = dbContent;
       if (t.includes("{{slots_text}}") && vars.slots_text) {
         t = t.replace("{{slots_text}}", vars.slots_text);
       }
-      prompt = renderTemplate(t, vars);
+      t = renderTemplate(t, vars).trim();
+      return t;
+    })();
+
+    if (renderedFromDB) {
+      prompt = renderedFromDB;
     } else {
       if (mode === "threeCards") {
         prompt = buildThreeCardsPrompt(userBrief, topic ?? "", payload.cards);
@@ -471,9 +490,10 @@ export async function POST(req: NextRequest) {
       type: "tarot",
       mode,                        // threeCards | weighOptions | classic10
       topic: topic ?? null,        // หัวข้อถาม
-      title: (topic ?? titleText ?? ""),
+      title: (titleText || topic || ""),
       payload,
       content: contentText,
+      analysis, // always persist computed analysis
     };
     if (clientId) {
       insertPayload.client_id = clientId;
@@ -509,6 +529,7 @@ export async function POST(req: NextRequest) {
       analysisLen: __debug.analysisLen,
       hasClientId: __debug.hasClientId,
       prompt_used: !!payload?.prompt_used,
+      fallbackUsed: __debug.openaiFallbackUsed === true,
     });
     return NextResponse.json(
       {
