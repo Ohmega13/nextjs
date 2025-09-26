@@ -493,7 +493,7 @@ export async function POST(req: NextRequest) {
       title: (titleText || topic || ""),
       payload,
       content: contentText,
-      analysis, // always persist computed analysis
+      // analysis property removed
     };
     if (clientId) {
       insertPayload.client_id = clientId;
