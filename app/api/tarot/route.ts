@@ -249,6 +249,30 @@ ${lines}
   return "";
 }
 
+function looksLikePrompt(text: string) {
+  const t = (text || "").toLowerCase();
+  if (!t) return false;
+  // mustache/placeholders
+  if (/\{\{\s*\w+\s*\}\}/.test(t)) return true;
+  // typical instruction-like hints that indicate the message is a template/prompt
+  const hints = [
+    "กรุณาอธิบาย",
+    "โปรดอธิบาย",
+    "รูปแบบการดู",
+    "สรุปภาพรวม",
+    "ตัวเลือกที่ต้องพิจารณา",
+    "ตำแหน่งละบรรทัด",
+    "ให้เหตุผลสั้น",
+    "เชื่อมโยงเข้ากับคำถาม",
+    "ใช้โครงนี้",
+    "checklist",
+    "please explain",
+    "analyze",
+    "use this structure",
+  ];
+  return hints.some((h) => t.includes(h.toLowerCase()));
+}
+
 // --- Supabase client helper (Next 15-safe) ---
 async function getSupabase(accessToken?: string) {
   const cookieStore = await cookies();
@@ -448,12 +472,18 @@ export async function POST(req: NextRequest) {
       const result = await callOpenAIWithRetry(prompt);
       __debug.openai = { called: true, tried: result.tried, reason: result.reason };
       analysis = result.text?.trim() || "";
-      if (!analysis) {
+      let usedFallback = false;
+      // If analysis is empty, too short, or looks like we accidentally got the prompt/template back, fall back.
+      if (!analysis || analysis.length < 40 || looksLikePrompt(analysis)) {
+        if (looksLikePrompt(analysis)) {
+          __debug.analysisWasPromptLike = true;
+        }
         analysis = buildLocalFallback(mode, payload);
+        usedFallback = true;
         __debug.openaiFallbackUsed = true;
       }
       __debug.analysisLen = analysis.length;
-      __debug.analysisPreview = analysis.slice(0, 120);
+      __debug.analysisPreview = analysis.slice(0, 160);
     } catch (err: any) {
       logError("OpenAI error", err?.message ?? err);
       __debug.openaiError = String(err?.message ?? err);
