@@ -8,11 +8,16 @@ import { ClientSelector } from '@/components/ClientSelector';
 
 type ReadingType = '3cards' | 'weigh' | 'celtic';
 type CardPick = { name: string; reversed: boolean };
-type ReadingRow = { id: string; created_at: string; topic: string | null; payload: any };
+type ReadingRow = {
+  id: string;
+  created_at: string;
+  topic: string | null;
+  payload: any;
+  content?: string | null; // <<< รับ content จาก DB (เผื่อ payload.analysis ว่าง)
+};
 
 // --- helpers ---------------------------------------------------------------
 
-// แปลง payload → ชื่อประเภทการดู
 function getReadingTypeLabel(payload: any): string {
   if (!payload) return 'ไพ่ยิปซี';
   if (Array.isArray(payload.pairs)) return 'เปรียบเทียบ/ชั่งน้ำหนัก (1 ใบ/ตัวเลือก)';
@@ -21,7 +26,6 @@ function getReadingTypeLabel(payload: any): string {
   return 'ไพ่ยิปซี';
 }
 
-// ดึงชุดไพ่จาก payload (รองรับทั้ง 3 โหมด)
 function getCardsFromPayload(p: any): CardPick[] {
   if (!p) return [];
   if (Array.isArray(p.cards)) return p.cards as CardPick[];
@@ -30,17 +34,23 @@ function getCardsFromPayload(p: any): CardPick[] {
   return [];
 }
 
+// --- utility: เลือกข้อความคำทำนายที่ “มีจริง” ก่อนเสมอ --------------------
+function pickAnalysisText(r?: { payload?: any; content?: string | null }) {
+  const a = r?.payload?.analysis;
+  const c = r?.content;
+  const text = (c && String(c).trim()) || (a && String(a).trim()) || '';
+  return text;
+}
+
 // --------------------------------------------------------------------------
 
 export default function TarotReadingPage() {
   const [role, setRole] = useState<'admin' | 'member'>('member');
   const [clientId, setClientId] = useState<string | null>(null);
 
-  // โปรไฟล์ที่จะโชว์ทางขวา
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
 
-  // พารามิเตอร์การดูไพ่
   const [readingType, setReadingType] = useState<ReadingType>('3cards');
   const [topic, setTopic] = useState('');
   const [cards, setCards] = useState<CardPick[]>([]);
@@ -48,18 +58,14 @@ export default function TarotReadingPage() {
   const [history, setHistory] = useState<ReadingRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // --- NEW: confirm modal & progress while drawing ---
   const [showConfirm, setShowConfirm] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // ตัวเลือกสำหรับโหมดชั่งน้ำหนัก (2–3 ตัวเลือก)
   const [options, setOptions] = useState<string[]>(['', '', '']);
 
-  // <<< NEW: modal state สำหรับดูประวัติแบบป๊อปอัป >>>
   const [openView, setOpenView] = useState<ReadingRow | null>(null);
 
-  // ปิดโมดัลด้วย ESC
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpenView(null);
@@ -68,7 +74,6 @@ export default function TarotReadingPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [openView]);
 
-  // วิ่งแถบ progress ระหว่างกำลังเปิดไพ่
   useEffect(() => {
     let t: any;
     if (isDrawing) {
@@ -87,14 +92,14 @@ export default function TarotReadingPage() {
   }
 
   function canSubmit(): boolean {
-    if (readingType === '3cards') return topic.trim().length > 0; // ต้องมีคำถาม
-    if (readingType === 'weigh') return options.map(o => o.trim()).filter(Boolean).length >= 2; // อย่างน้อย 2 ตัวเลือก
-    return true; // celtic ไม่ต้องกรอกอะไรเพิ่ม
+    if (readingType === '3cards') return topic.trim().length > 0;
+    if (readingType === 'weigh') return options.map(o => o.trim()).filter(Boolean).length >= 2;
+    return true;
+    // 'celtic' ไม่ต้องกรอกอะไรเพิ่ม
   }
 
-  // เรียก API Route ให้สุ่มไพ่ + บันทึก Supabase ผ่าน cookies/headers
+  // --- เปิดไพ่ + บันทึกผ่าน API Route ---
   async function handleDraw() {
-    // เตรียม payload ให้ API ตามโหมด
     let apiPayload: any = {};
     if (readingType === '3cards') {
       apiPayload = { mode: 'threeCards', question: topic.trim() };
@@ -105,23 +110,12 @@ export default function TarotReadingPage() {
       apiPayload = { mode: 'classic10' };
     }
 
-    // แนบ access token ใน Authorization header เพื่อให้ API auth ผ่าน
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      if (role === 'admin' && clientId) {
-        // Map clients.id -> profiles.user_id so API receives the expected user_id
-        const { data: c } = await supabase
-          .from('clients')
-          .select('user_id')
-          .eq('id', clientId)
-          .maybeSingle();
-        if (c?.user_id) {
-          headers['x-ddt-target-user'] = c.user_id;
-        }
-      }
+      if (role === 'admin' && clientId) headers['x-ddt-target-user'] = clientId;
     } catch {}
 
     setIsDrawing(true);
@@ -143,11 +137,7 @@ export default function TarotReadingPage() {
     }
 
     let data: any = null;
-    try {
-      data = await res.json();
-    } catch {
-      // ignore json parse error
-    }
+    try { data = await res.json(); } catch {}
 
     if (!res.ok || !data?.ok) {
       setIsDrawing(false);
@@ -159,7 +149,7 @@ export default function TarotReadingPage() {
       return;
     }
 
-    const r = data?.reading;
+    const r = data?.reading as ReadingRow | undefined;
     if (!r) {
       setIsDrawing(false);
       setShowConfirm(false);
@@ -169,7 +159,7 @@ export default function TarotReadingPage() {
       return;
     }
 
-    // อัปเดตไพ่บนหน้าจอสำหรับโชว์ทันที
+    // อัปเดตไพ่ที่โชว์ทันที (ทุกโหมด)
     if (r.payload?.cards) {
       setCards(r.payload.cards);
     } else if (r.payload?.pairs) {
@@ -178,19 +168,29 @@ export default function TarotReadingPage() {
       setCards(r.payload.slots.map((s: any) => s.card));
     }
 
-    // เก็บข้อความคำทำนายจาก API (ถ้ามี)
-    setResult(r.payload?.analysis ?? "");
+    // ✅ ใช้ content → payload.analysis เป็นลำดับ
+    setResult(pickAnalysisText(r));
 
-    // เปิดดูผลล่าสุดในป๊อปอัปทันที
+    // เปิดป๊อปอัปผลล่าสุด
     setOpenView({
       id: r.id,
       created_at: r.created_at,
       topic: r.topic,
       payload: r.payload,
-    } as any);
+      content: r.content,
+    });
 
     // prepend ประวัติ
-    setHistory(prev => [{ id: r.id, created_at: r.created_at, topic: r.topic, payload: r.payload }, ...prev]);
+    setHistory(prev => [
+      {
+        id: r.id,
+        created_at: r.created_at,
+        topic: r.topic,
+        payload: r.payload,
+        content: r.content,
+      },
+      ...prev
+    ]);
 
     setIsDrawing(false);
     setShowConfirm(false);
@@ -208,12 +208,11 @@ export default function TarotReadingPage() {
     })();
   }, []);
 
-  // โหลดโปรไฟล์ (ข้อมูลดวง) ตาม role + clientId
+  // โหลดโปรไฟล์ (ข้อมูลดวง)
   useEffect(() => {
     (async () => {
       setLoadingProfile(true);
       try {
-        // target คือ client ที่เลือก (ถ้า admin) หรือ uid ของตัวเอง (ถ้า member)
         let targetUserId: string | null = null;
         if (role === 'admin') {
           targetUserId = clientId ?? null;
@@ -235,7 +234,7 @@ export default function TarotReadingPage() {
     })();
   }, [role, clientId]);
 
-  // โหลดประวัติการดูไพ่ของ user เดียวกัน
+  // โหลดประวัติการดูไพ่
   useEffect(() => {
     (async () => {
       setLoadingHistory(true);
@@ -254,7 +253,7 @@ export default function TarotReadingPage() {
 
         const { data, error } = await supabase
           .from('readings')
-          .select('id, created_at, topic, payload')
+          .select('id, created_at, topic, payload, content') // <<< รวม content มาด้วย
           .eq('user_id', targetUserId)
           .eq('type', 'tarot')
           .order('created_at', { ascending: false });
@@ -272,7 +271,6 @@ export default function TarotReadingPage() {
       <div className="max-w-5xl mx-auto p-4 space-y-6">
         <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
 
-        {/* แถบเลือก client เฉพาะ admin */}
         {role === 'admin' && (
           <div className="rounded-xl border p-4 space-y-2">
             <div className="text-sm text-slate-600">เลือกลูกดวง</div>
@@ -390,12 +388,12 @@ export default function TarotReadingPage() {
           {result && (
             <div className="rounded-xl border p-4 mt-3">
               <div className="font-medium mb-2">คำทำนาย</div>
-              <div className="whitespace-pre-wrap text-sm text-slate-700">{result}</div>
+              <div className="whitespace-pre-wrap text-slate-700">{result}</div>
             </div>
           )}
         </div>
 
-        {/* ประวัติดูไพ่ */}
+        {/* ประวัติ */}
         <div className="rounded-xl border p-4">
           <div className="font-medium mb-2">ประวัติดูดวง Tarot</div>
           {loadingHistory ? (
@@ -406,7 +404,7 @@ export default function TarotReadingPage() {
                 <li
                   key={h.id}
                   className="border rounded-md p-2 cursor-pointer hover:bg-slate-50"
-                  onClick={() => setOpenView(h)}   // <<< NEW: เปิดป๊อปอัป
+                  onClick={() => setOpenView(h)}
                 >
                   <div className="text-slate-600">{new Date(h.created_at).toLocaleString()}</div>
                   <div>ประเภท: {getReadingTypeLabel(h.payload)}</div>
@@ -420,7 +418,7 @@ export default function TarotReadingPage() {
         </div>
       </div>
 
-      {/* --- Modal ก่อนเริ่มเปิดไพ่ --- */}
+      {/* Modal ก่อนเริ่ม */}
       {showConfirm && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => !isDrawing && setShowConfirm(false)} />
@@ -457,12 +455,10 @@ export default function TarotReadingPage() {
         </div>
       )}
 
-      {/* --- Modal แสดงผลประวัติ --- */}
+      {/* Modal แสดงผล */}
       {openView && (
         <div className="fixed inset-0 z-50">
-          {/* backdrop */}
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpenView(null)} />
-          {/* dialog */}
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
                           w-[min(720px,90vw)] max-h-[85vh] overflow-auto
                           bg-white rounded-2xl shadow-xl p-4">
@@ -495,11 +491,12 @@ export default function TarotReadingPage() {
                 </div>
               </div>
 
-              {openView.payload?.analysis && (
+              {/* ✅ ใช้ content → payload.analysis */}
+              {pickAnalysisText(openView) && (
                 <div className="rounded-xl border p-3">
                   <div className="font-medium mb-1">คำทำนาย</div>
                   <div className="whitespace-pre-wrap text-slate-700">
-                    {openView.payload.analysis}
+                    {pickAnalysisText(openView)}
                   </div>
                 </div>
               )}
