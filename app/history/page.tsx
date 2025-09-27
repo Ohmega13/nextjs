@@ -16,6 +16,35 @@ type ReadingRow = {
   user_id: string;
 };
 
+// --- Legacy/variant tarot modes normalization ---
+const TAROT_MODE_SET = new Set([
+  'tarot',
+  // legacy / variant codes that were stored directly in `mode`
+  'threeCards',
+  '3cards',
+  'weigh',
+  'weighOptions',
+  'classic10',
+  'celtic',
+]);
+
+function isTarotMode(m?: string | null): boolean {
+  return !!m && TAROT_MODE_SET.has(m);
+}
+
+function legacyTarotLabelFromMode(m?: string | null): string {
+  const map: Record<string, string> = {
+    threeCards: 'ถามเรื่องเดียว 3 ใบ',
+    '3cards': 'ถามเรื่องเดียว 3 ใบ',
+    weigh: 'เปรียบเทียบ',
+    weighOptions: 'เปรียบเทียบ',
+    classic10: 'แบบคลาสสิก 10 ใบ',
+    celtic: 'แบบคลาสสิก 10 ใบ',
+    tarot: 'ไพ่ยิปซี',
+  };
+  return (m && map[m]) || 'ไพ่ยิปซี';
+}
+
 
 // Helper function to extract cards from payload
 function extractTarotCards(payload: any): string[] {
@@ -45,7 +74,13 @@ function getRowTypeLabel(
   payload: any,
   typeLabel: { tarot: string; palm: string; natal: string }
 ) {
-  if (mode === 'tarot') return getReadingTypeLabel(payload);
+  // Treat legacy/variant tarot modes as tarot
+  if (isTarotMode(mode)) {
+    // Prefer inspecting payload to derive the specific layout in Thai
+    const byPayload = getReadingTypeLabel(payload);
+    // If payload structure is not sufficient (older rows), fallback by mode mapping
+    return byPayload || legacyTarotLabelFromMode(mode);
+  }
   if (mode === 'natal') {
     const sys =
       payload?.system === 'thai'
@@ -55,6 +90,7 @@ function getRowTypeLabel(
         : undefined;
     return sys ? `${typeLabel.natal} (${sys})` : typeLabel.natal;
   }
+  // Default mapping for other modes
   return (typeLabel as any)[mode] ?? mode;
 }
 
@@ -121,7 +157,12 @@ export default function HistoryPage() {
           .order('created_at', { ascending: false });
 
         // type filter
-        if (type !== 'all') q = q.eq('mode', type);
+        if (type === 'tarot') {
+          // Include legacy/variant tarot modes so "ไพ่ยิปซี" shows both old and new records
+          q = q.in('mode', Array.from(TAROT_MODE_SET));
+        } else if (type !== 'all') {
+          q = q.eq('mode', type);
+        }
 
         // date range
         if (from) q = q.gte('created_at', new Date(from + 'T00:00:00.000Z').toISOString());
