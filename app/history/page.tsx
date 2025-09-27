@@ -16,20 +16,15 @@ type ReadingRow = {
   user_id: string;
 };
 
-// Helper function to map tarot layout code to name
-function getTarotLayoutName(layoutCode: string | undefined): string {
-  const layouts: Record<string, string> = {
-    'celtic_cross': 'เซลติกครอส',
-    'three_card': 'สามใบ',
-    'horseshoe': 'เกือกม้า',
-  };
-  return layoutCode ? layouts[layoutCode] ?? layoutCode : '-';
-}
 
 // Helper function to extract cards from payload
 function extractTarotCards(payload: any): string[] {
   if (!payload || !payload.cards) return [];
-  return payload.cards.map((c: any) => c.name ?? c);
+  return payload.cards.map((c: any) => {
+    const name = typeof c === 'string' ? c : c?.name ?? '';
+    const reversed = typeof c === 'object' && !!c?.reversed;
+    return name ? `${name}${reversed ? ' (กลับหัว)' : ''}` : '';
+  }).filter(Boolean);
 }
 
 // New helper function to get reading type label (tarot) by inspecting payload
@@ -350,7 +345,7 @@ export default function HistoryPage() {
 
             <div className="grid grid-cols-[110px_1fr] gap-x-3 text-sm mb-4">
               <div className="text-slate-500">วันที่</div>
-              <div>{new Date(editTarget.created_at).toLocaleString()}</div>
+              <div>{new Date(editTarget.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</div>
               <div className="text-slate-500">ประเภท</div>
               <div>
                 {getRowTypeLabel(editTarget.mode, editTarget.payload, typeLabel as any)}
