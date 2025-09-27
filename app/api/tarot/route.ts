@@ -250,14 +250,22 @@ ${lines}
 }
 
 function looksLikePrompt(text: string) {
-  const t = (text || "").toLowerCase();
+  const t = (text || "").toLowerCase().trim();
   if (!t) return false;
-  // mustache/placeholders
-  if (/\{\{\s*\w+\s*\}\}/.test(t)) return true;
-  // typical instruction-like hints that indicate the message is a template/prompt
-  const hints = [
+
+  // obvious templating placeholders
+  if (/\{\{\s*[\w.]+\s*\}\}/.test(t)) return true;
+
+  // Thai/EN cues that strongly indicate instruction templates, not analysis
+  const cues = [
     "กรุณาอธิบาย",
     "โปรดอธิบาย",
+    "กรุณาระบุ",
+    "โปรดระบุ",
+    "ใส่ชื่อ",
+    "ใส่นามสกุล",
+    "วันเกิดของคุณ",
+    "เวลาเกิดของคุณ",
     "รูปแบบการดู",
     "สรุปภาพรวม",
     "ตัวเลือกที่ต้องพิจารณา",
@@ -265,12 +273,23 @@ function looksLikePrompt(text: string) {
     "ให้เหตุผลสั้น",
     "เชื่อมโยงเข้ากับคำถาม",
     "ใช้โครงนี้",
+    "เตรียมจิต",
     "checklist",
     "please explain",
+    "please provide",
     "analyze",
-    "use this structure",
+    "use this structure"
   ];
-  return hints.some((h) => t.includes(h.toLowerCase()));
+  if (cues.some((h) => t.includes(h.toLowerCase()))) return true;
+
+  // very short or obviously meta/instructional tone
+  if (t.length < 40) return true;
+
+  // heuristic: lots of colons or numbered headings without content
+  const colonCount = (t.match(/:/g) || []).length;
+  if (colonCount > 8 && t.split(/\s+/).length < 120) return true;
+
+  return false;
 }
 
 // --- Supabase client helper (Next 15-safe) ---
@@ -473,8 +492,9 @@ export async function POST(req: NextRequest) {
       __debug.openai = { called: true, tried: result.tried, reason: result.reason };
       analysis = result.text?.trim() || "";
       let usedFallback = false;
-      // If analysis is empty, too short, or looks like we accidentally got the prompt/template back, fall back.
-      if (!analysis || analysis.length < 40 || looksLikePrompt(analysis)) {
+
+      // If the model echoed the template or produced unusable text, fall back.
+      if (!analysis || analysis.length < 80 || looksLikePrompt(analysis)) {
         if (looksLikePrompt(analysis)) {
           __debug.analysisWasPromptLike = true;
         }
@@ -482,8 +502,16 @@ export async function POST(req: NextRequest) {
         usedFallback = true;
         __debug.openaiFallbackUsed = true;
       }
+
+      // sanity: never store the prompt itself by mistake
+      if (analysis === prompt || looksLikePrompt(analysis)) {
+        analysis = buildLocalFallback(mode, payload);
+        usedFallback = true;
+        __debug.openaiFallbackUsed = true;
+      }
+
       __debug.analysisLen = analysis.length;
-      __debug.analysisPreview = analysis.slice(0, 160);
+      __debug.analysisPreview = (analysis || "").slice(0, 160);
     } catch (err: any) {
       logError("OpenAI error", err?.message ?? err);
       __debug.openaiError = String(err?.message ?? err);
@@ -577,6 +605,7 @@ export async function POST(req: NextRequest) {
           promptPreview: __debug.promptPreview,
           openai: __debug.openai,
           fallbackUsed: __debug.openaiFallbackUsed === true,
+          contentPreview: (contentText || "").slice(0, 120),
         },
       },
       { status: 200 }
