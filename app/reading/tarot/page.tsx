@@ -20,17 +20,20 @@ type ReadingRow = {
 
 function formatThaiDob(dob?: string | null) {
   if (!dob) return '-';
-  // Ensure no timezone shift
-  const d = new Date(`${dob}T00:00:00`);
+  const d = new Date(`${dob}T00:00:00`); // avoid TZ shift
   try {
-    const formatted = new Intl.DateTimeFormat('th-TH-u-ca-buddhist', {
+    const raw = new Intl.DateTimeFormat('th-TH-u-ca-buddhist', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
       year: 'numeric',
     }).format(d);
-    // Remove "พ.ศ." if present, and insert "ที่" after weekday for the desired style
-    return formatted.replace('พ.ศ. ', '').replace(/^(.+?)(\s)(\d)/, '$1ที่ $3');
+    // Drop the explicit "พ.ศ." to match design
+    let s = raw.replace('พ.ศ. ', '');
+    // If it already has "ที่" after weekday, keep it as-is
+    if (/วัน\S+ที่\s+\d/.test(s)) return s;
+    // Otherwise insert "ที่" between weekday and day
+    return s.replace(/^(วัน\S+)\s+(\d)/, '$1ที่ $2');
   } catch {
     return dob;
   }
@@ -445,7 +448,7 @@ export default function TarotReadingPage() {
             <div className="text-sm whitespace-pre-wrap bg-slate-50 rounded-xl p-4">
               {`นั่งในท่าสบาย ๆ หายใจเข้าออกสักครู่ แล้วตั้งจิตอธิษฐาน
 
-“ข้าพเจ้า ${`${(profile?.first_name ?? '')} ${(profile?.last_name ?? '')}`.trim() || '-'} เกิดวันที่ ${formatThaiDob(profile?.dob)}
+“ข้าพเจ้า ${`${(profile?.first_name ?? '')} ${(profile?.last_name ?? '')}`.trim() || '-'} เกิด ${formatThaiDob(profile?.dob)}
 ขอนอบน้อมต่อสิ่งศักดิ์สิทธิ์ทั้งหลาย
 ขอบารมีพระพุทธ พระธรรม พระสงฆ์ เทพเทวา ครูบาอาจารย์ และพลังแห่งจักรวาล
 โปรดเปิดทางแห่งความจริงให้ปรากฏ
