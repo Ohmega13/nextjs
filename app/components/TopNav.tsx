@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
@@ -116,9 +117,13 @@ export default function TopNav() {
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between pt-[env(safe-area-inset-top)]">
         {/* ซ้าย: โลโก้ + ชื่อแอป */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-bold">
-            DD
-          </span>
+          <Image
+            src="/logo.png"
+            alt="Destiny Decode Tarot"
+            width={32}
+            height={32}
+            className="rounded-full"
+          />
           <span className="hidden lg:inline text-slate-800 font-semibold">
             Destiny Decode <span className="text-indigo-600">Tarot</span>
           </span>
