@@ -21,7 +21,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="th">
-      <body className={`${noto.className} min-h-screen bg-white text-slate-800`}>
+      <body className={`${noto.className} bg-white text-slate-800`}>
         {/* Topbar */}
         <header className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur">
           <div className="max-w-7xl mx-auto px-4 py-3">
