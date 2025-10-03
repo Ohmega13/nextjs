@@ -162,12 +162,14 @@ export default function TopNav() {
                   <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>
                   <Link href="/profile" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">Profile</Link>
                   <Link href="/backup" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สำรอง/กู้คืนข้อมูล</Link>
+                  <Link href="/contact" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ติดต่อเรา</Link>
                   {role === 'admin' && (
                     <>
                       <div className="my-1 h-px bg-slate-100" />
                       <Link href="/admin/members" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">สมาชิก (แอดมิน)</Link>
                       <Link href="/clients" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ลงทะเบียนลูกดวง</Link>
                       <Link href="/admin/prompts" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">จัดการพรอมป์ (แอดมิน)</Link>
+                      <Link href="/admin/feedback" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">Feedback (แอดมิน)</Link>
                     </>
                   )}
                   <div className="my-1 h-px bg-slate-100" />
@@ -179,6 +181,7 @@ export default function TopNav() {
             </>
           ) : (
             <>
+              <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/contact">ติดต่อเรา</Link>
               <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/login">เข้าสู่ระบบ</Link>
               <Link className="px-3 py-2 rounded-xl hover:bg-indigo-50" href="/signup">สมัครสมาชิก</Link>
             </>
