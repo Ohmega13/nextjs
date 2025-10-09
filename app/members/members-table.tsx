@@ -40,7 +40,7 @@ export default function MembersTable({ rows, toggle }: Props) {
               <td className="px-3 py-2">{r.email}</td>
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
               <td className="px-3 py-2">{r.role}</td>
-              <td className="px-3 py-2">{r.status}</td>
+              <StatusDropdown user_id={r.user_id} status={r.status} />
 
               <td className="px-3 py-2 text-center">
                 <label className="inline-flex items-center gap-2">
@@ -90,5 +90,50 @@ export default function MembersTable({ rows, toggle }: Props) {
         </tbody>
       </table>
     </div>
+  );
+}
+// Dropdown สำหรับเปลี่ยนสถานะสมาชิก
+import React from 'react';
+
+function StatusDropdown({ user_id, status }: { user_id: string; status: string }) {
+  const [value, setValue] = React.useState(status);
+  const [loading, setLoading] = React.useState(false);
+
+  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = e.target.value;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/members/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id, status: nextValue }),
+      });
+      if (!res.ok) {
+        alert('อัปเดตสถานะไม่สำเร็จ');
+        // revert select value
+        e.target.value = value;
+      } else {
+        setValue(nextValue);
+      }
+    } catch (err) {
+      alert('อัปเดตสถานะไม่สำเร็จ');
+      e.target.value = value;
+    }
+    setLoading(false);
+  };
+
+  return (
+    <td className="px-3 py-2">
+      <select
+        className="border rounded px-2 py-1"
+        value={value}
+        onChange={handleChange}
+        disabled={loading}
+      >
+        <option value="pending">pending</option>
+        <option value="active">active</option>
+        <option value="suspended">suspended</option>
+      </select>
+    </td>
   );
 }
