@@ -161,7 +161,7 @@ export default function ClientsPage() {
               label="ชื่อ-สกุล *"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="เช่น ปฏิญญา หะยอม ใหม่"
+              placeholder="ชื่อ-สกุล"
               error={errors.name}
             />
             <Input label="ชื่อเล่น" value={form.nickname} onChange={(e) => setForm((f) => ({ ...f, nickname: e.target.value }))} />
