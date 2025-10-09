@@ -91,7 +91,7 @@ export default function SignupPage() {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="mt-1 w-full rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="เช่น โอห์ม"
+                placeholder="ชื่อผู้ใช้"
               />
             </div>
             <div>
