@@ -1,5 +1,6 @@
 // app/reading/page.tsx
 import Link from "next/link";
+import WhatsNewBar from "@/components/WhatsNewBar";
 
 export default function ReadingHome() {
   return (
@@ -52,6 +53,8 @@ export default function ReadingHome() {
           </div>
         </Link>
       </div>
+
+      <WhatsNewBar /> {/* เพิ่มส่วนแสดง What's new */}
     </div>
   );
 }

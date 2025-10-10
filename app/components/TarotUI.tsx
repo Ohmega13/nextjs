@@ -1,44 +1,5 @@
 "use client";
 import React, { useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-function AnnouncementBox() {
-  const [text, setText] = React.useState<string | null>(null);
-  const [active, setActive] = React.useState<boolean>(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      // อ่านค่าประกาศจากตาราง site_settings (key = 'announcement')
-      const { data, error } = await supabase
-        .from("site_settings")
-        .select("value")
-        .eq("key", "announcement")
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (error) return;
-
-      const v = (data?.value as any) || {};
-      setText(typeof v.content === "string" ? v.content : null);
-      setActive(v.is_active !== false); // default: แสดง
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!active || !text) return null;
-
-  return (
-    <div className="mb-4 rounded-2xl border bg-indigo-50/60 p-4 text-sm text-indigo-900">
-      <div className="font-semibold mb-1">ประกาศ</div>
-      <div className="whitespace-pre-wrap">{text}</div>
-    </div>
-  );
-}
 
 /**
  * TarotUI.tsx – คอมโพเนนต์ฟอร์มหลักสำหรับหน้า Tarot
@@ -66,12 +27,10 @@ export function TarotUI({
   defaultMode = "threeCards",
   onSubmit,
   isSubmitting = false,
-  showAnnouncement = true,
 }: {
   defaultMode?: TarotMode;
   onSubmit: (payload: TarotPayload) => void | Promise<void>;
   isSubmitting?: boolean;
-  showAnnouncement?: boolean;
 }) {
   const [mode, setMode] = useState<TarotMode>(defaultMode);
   const [question, setQuestion] = useState("");
@@ -120,7 +79,6 @@ export function TarotUI({
 
   return (
     <div className="w-full max-w-3xl mx-auto p-4">
-      {showAnnouncement && <AnnouncementBox />}
       {/* เลือกโหมด */}
       <div className="mb-4">
         <label className="block mb-2 font-medium">เลือกโหมดดูดวง</label>
