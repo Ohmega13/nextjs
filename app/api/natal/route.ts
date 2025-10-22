@@ -61,6 +61,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
 
+    // Deduct credits by calling RPC sp_use_credit
+    const { data: creditData, error: creditError } = await supabase.rpc('sp_use_credit', {
+      p_user: user.id,
+      p_feature: 'natal_reading',
+      p_cost: 10,
+      p_reading: null,
+    });
+
+    if (creditError || creditData == null) {
+      return NextResponse.json({ ok: false, error: "เครดิตไม่พอ กรุณาเติมเครดิต" }, { status: 402 });
+    }
+
     const body = await req.json();
     const system: "thai" | "western" = body?.system === "western" ? "western" : "thai";
     const full_name = body?.full_name ?? body?.fullName ?? "";

@@ -6,6 +6,18 @@ import PermissionGate from '@/components/PermissionGate';
 import { getProfileDetailsByUserId, type ProfileRow } from '@/lib/profile';
 import { ClientSelector } from '@/components/ClientSelector';
 
+// --- credit costs per mode (used for UI hint only) ------------------------
+const TAROT_COST: Record<'threeCards' | 'weighOptions' | 'classic10', number> = {
+  threeCards: 1,
+  weighOptions: 1,
+  classic10: 5,
+};
+
+type CreditsMe =
+  | { ok: true; balance: number }
+  | { ok: true; credits: { balance: number } }
+  | { ok: false; error: string };
+
 type ReadingType = '3cards' | 'weigh' | 'celtic';
 type CardPick = { name: string; reversed: boolean };
 type ReadingRow = {
@@ -87,6 +99,8 @@ export default function TarotReadingPage() {
 
   const [openView, setOpenView] = useState<ReadingRow | null>(null);
 
+  const [credits, setCredits] = useState<number | null>(null);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpenView(null);
@@ -110,6 +124,22 @@ export default function TarotReadingPage() {
 
   function updateOption(i: number, v: string) {
     setOptions(prev => prev.map((x, idx) => (idx === i ? v : x)));
+  }
+
+  async function loadCredits() {
+    try {
+      const res = await fetch('/api/credits/me', { method: 'GET', cache: 'no-store' });
+      const data: CreditsMe = await res.json();
+      if ((data as any)?.ok) {
+        if ('balance' in (data as any)) {
+          setCredits((data as any).balance ?? null);
+        } else if ('credits' in (data as any)) {
+          setCredits((data as any).credits?.balance ?? null);
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   function canSubmit(): boolean {
@@ -165,7 +195,16 @@ export default function TarotReadingPage() {
       setShowConfirm(false);
       setProgress(100);
       setTimeout(() => setProgress(0), 600);
-      const msg = data?.error || `เกิดข้อผิดพลาด (${res.status})`;
+
+      const isNoCredit =
+        res.status === 402 ||
+        (typeof data?.error === 'string' && /เครดิตไม่พอ|insufficient\s*credit/i.test(data.error));
+
+      const msg = isNoCredit
+        ? 'เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ'
+        : (data?.error || `เกิดข้อผิดพลาด (${res.status})`);
+
+      // แสดงข้อความชัดเจนเมื่อเครดิตไม่พอ และไม่เปิด modal แสดงผล
       alert(msg);
       return;
     }
@@ -212,6 +251,15 @@ export default function TarotReadingPage() {
       },
       ...prev
     ]);
+
+    // รีเฟรชยอดเครดิตในเพจนี้ด้วย
+    loadCredits().catch(() => {});
+    // รีเฟรชยอดเครดิตบนหัวเว็บ (ถ้ามี listener ฝั่ง TopNav)
+    try {
+      await fetch('/api/credits/me', { method: 'GET', cache: 'no-store' });
+      // ให้ส่วนหัวที่แสดงเครดิต สามารถฟัง event นี้เพื่ออัปเดต
+      window.dispatchEvent(new CustomEvent('credits:refresh'));
+    } catch {}
 
     setIsDrawing(false);
     setShowConfirm(false);
@@ -287,10 +335,33 @@ export default function TarotReadingPage() {
     })();
   }, [role, clientId]);
 
+  useEffect(() => {
+    loadCredits();
+    const onRefresh = () => loadCredits();
+    window.addEventListener('credits:refresh', onRefresh);
+    return () => window.removeEventListener('credits:refresh', onRefresh);
+  }, []);
+
   return (
     <PermissionGate requirePerms={['tarot']}>
       <div className="max-w-5xl mx-auto p-4 space-y-6">
-        <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="rounded-full border px-3 py-1 bg-white">
+              เครดิตคงเหลือ: {credits ?? '—'}
+            </span>
+            <span className="rounded-full border px-3 py-1 bg-slate-50">
+              ใช้ต่อครั้ง: {
+                readingType === '3cards'
+                  ? TAROT_COST.threeCards
+                  : readingType === 'weigh'
+                  ? TAROT_COST.weighOptions
+                  : TAROT_COST.classic10
+              }
+            </span>
+          </div>
+        </div>
 
         {role === 'admin' && (
           <div className="rounded-xl border p-4 space-y-2">
@@ -307,7 +378,7 @@ export default function TarotReadingPage() {
           ) : profile ? (
             <div className="text-sm space-y-1">
               <div>ชื่อ-นามสกุล: {profile.first_name ?? '-'} {profile.last_name ?? ''}</div>
-              <div>วัน/เดือน/ปี เกิด: {profile.dob ?? '-'}</div>
+              <div>เกิด {formatThaiDob(profile.dob)}</div>
               <div>เวลาเกิด: {profile.birth_time ?? '-'}</div>
             </div>
           ) : (

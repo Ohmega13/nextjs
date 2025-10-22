@@ -25,6 +25,38 @@ export default function TopNav() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [credits, setCredits] = useState<number | null>(null);
+
+  const loadCredits = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setCredits(null);
+        return;
+      }
+      const res = await fetch('/api/credits/me', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        setCredits(null);
+        return;
+      }
+      const json = await res.json();
+      // รองรับทั้งสองรูปแบบ: { ok:true, balance } หรือ { ok:true, credits:{ balance } }
+      const bal =
+        typeof json?.balance === 'number'
+          ? json.balance
+          : typeof json?.credits?.balance === 'number'
+          ? json.credits.balance
+          : null;
+      setCredits(bal);
+    } catch {
+      setCredits(null);
+    }
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -45,10 +77,13 @@ export default function TopNav() {
           .maybeSingle();
 
         setRole((prof as ProfileRow | null)?.role ?? null);
+
+        await loadCredits();
       } else {
         setUserEmail(null);
         setDisplayName(null);
         setRole(null);
+        setCredits(null);
       }
       setLoading(false);
     };
@@ -69,8 +104,10 @@ export default function TopNav() {
           .maybeSingle();
 
         setRole((prof as ProfileRow | null)?.role ?? null);
+        await loadCredits();
       } else {
         setRole(null);
+        setCredits(null);
       }
 
       setLoading(false);
@@ -80,6 +117,15 @@ export default function TopNav() {
       sub.subscription.unsubscribe();
       ignore = true;
     };
+  }, []);
+
+  // ฟัง event credits:refresh เพื่อรีโหลดเครดิตอัตโนมัติ
+  useEffect(() => {
+    const onRefresh = () => {
+      loadCredits();
+    };
+    window.addEventListener('credits:refresh', onRefresh);
+    return () => window.removeEventListener('credits:refresh', onRefresh);
   }, []);
 
   // ปิดเมนูเมื่อเส้นทางเปลี่ยน
@@ -109,6 +155,7 @@ export default function TopNav() {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setCredits(null);
     router.replace('/login?returnTo=' + encodeURIComponent(pathname || '/'));
   };
 
@@ -139,6 +186,12 @@ export default function TopNav() {
               <span className="text-slate-600 text-xs sm:text-sm max-w-[50vw] md:max-w-[300px] truncate text-right">
                 สวัสดี, <span className="font-medium">{displayName ?? userEmail}</span>
               </span>
+              <span
+                className="hidden sm:inline-flex items-center rounded-full border px-2 py-1 text-xs text-slate-700 bg-white"
+                title="เครดิตคงเหลือ"
+              >
+                เครดิต: {credits ?? '—'}
+              </span>
 
               <button
                 id="topnav-menu"
@@ -162,6 +215,11 @@ export default function TopNav() {
                   role="menu"
                   aria-labelledby="topnav-menu"
                 >
+                  <div className="flex items-center justify-between px-3 py-2 text-sm text-slate-600">
+                    <span>เครดิตคงเหลือ</span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-white">{credits ?? '—'}</span>
+                  </div>
+                  <div className="my-1 h-px bg-slate-100" />
                   <Link href="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">หน้าแรก</Link>
                   <Link href="/reading" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">เริ่มดูดวง</Link>
                   <Link href="/history" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-slate-50">ประวัติการดูดวง</Link>

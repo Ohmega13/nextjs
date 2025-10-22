@@ -372,6 +372,37 @@ export async function POST(req: NextRequest) {
       : user.id;
     __debug.targetUserId = targetUserId;
 
+    // ระบบตัดเครดิตก่อนดูไพ่
+    const mode = (body?.mode ?? "") as TarotMode;
+    if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
+      return NextResponse.json({ ok: false, error: "INVALID_MODE" }, { status: 400 });
+    }
+    let featureKey = "";
+    let cost = 1;
+    if (mode === "threeCards") {
+      featureKey = "tarot_threeCards";
+      cost = 1;
+    } else if (mode === "weighOptions") {
+      featureKey = "tarot_weighOptions";
+      cost = 1;
+    } else if (mode === "classic10") {
+      featureKey = "tarot_classic10";
+      cost = 5;
+    }
+    // เรียก RPC ที่ Supabase
+    const { data: creditResult, error: creditError } = await supabase.rpc("sp_use_credit", {
+      p_user_id: targetUserId,
+      p_feature: featureKey,
+      p_cost: cost,
+      p_reading: null,
+    });
+    if (creditError || !creditResult) {
+      return NextResponse.json(
+        { ok: false, error: "เครดิตไม่พอ กรุณาเติมเครดิต" },
+        { status: 402 }
+      );
+    }
+
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
       .from("profiles")
@@ -384,11 +415,6 @@ export async function POST(req: NextRequest) {
       birthDate: profile?.birth_date ?? "ไม่ระบุวันเกิด",
       birthTime: profile?.birth_time ?? undefined,
     };
-
-    const mode = (body?.mode ?? "") as TarotMode;
-    if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
-      return NextResponse.json({ ok: false, error: "INVALID_MODE" }, { status: 400 });
-    }
 
     let topic: string | null = null;
     let payload: any = { submode: mode };

@@ -6,6 +6,7 @@ type Row = {
   role: string;
   status: string;
   display_name: string | null;
+  credit_balance?: number;
   permissions: {
     tarot?: boolean;
     natal?: boolean;
@@ -20,6 +21,31 @@ type Props = {
 };
 
 export default function MembersTable({ rows, toggle }: Props) {
+  const handleTopUp = async (user_id: string) => {
+    const input = prompt('กรุณากรอกจำนวนเงินที่ต้องการเติมเครดิต');
+    if (!input) return;
+    const amount = Number(input);
+    if (isNaN(amount) || amount <= 0) {
+      alert('จำนวนเงินไม่ถูกต้อง');
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/credits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id, amount }),
+      });
+      if (!res.ok) {
+        alert('เติมเครดิตไม่สำเร็จ');
+      } else {
+        alert('เติมเครดิตสำเร็จ');
+        window.location.reload();
+      }
+    } catch {
+      alert('เติมเครดิตไม่สำเร็จ');
+    }
+  };
+
   return (
     <div className="rounded-xl border overflow-x-auto">
       <table className="w-full text-sm">
@@ -29,6 +55,8 @@ export default function MembersTable({ rows, toggle }: Props) {
             <th className="px-3 py-2">ชื่อแสดง</th>
             <th className="px-3 py-2">บทบาท</th>
             <th className="px-3 py-2">สถานะ</th>
+            <th className="px-3 py-2 text-right">เครดิตคงเหลือ</th>
+            <th className="px-3 py-2">เติมเครดิต</th>
             <th className="px-3 py-2">Tarot</th>
             <th className="px-3 py-2">พื้นดวง</th>
             <th className="px-3 py-2">ลายมือ</th>
@@ -41,7 +69,15 @@ export default function MembersTable({ rows, toggle }: Props) {
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
               <td className="px-3 py-2">{r.role}</td>
               <StatusDropdown user_id={r.user_id} status={r.status} />
-
+              <td className="px-3 py-2 text-right">{r.credit_balance ?? 0}</td>
+              <td className="px-3 py-2 text-center">
+                <button
+                  className="rounded bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
+                  onClick={() => handleTopUp(r.user_id)}
+                >
+                  เติมเครดิต
+                </button>
+              </td>
               <td className="px-3 py-2 text-center">
                 <label className="inline-flex items-center gap-2">
                   <input
@@ -82,7 +118,7 @@ export default function MembersTable({ rows, toggle }: Props) {
 
           {rows.length === 0 && (
             <tr>
-              <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>
+              <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
                 ยังไม่มีสมาชิก
               </td>
             </tr>
