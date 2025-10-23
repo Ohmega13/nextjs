@@ -1,26 +1,48 @@
 // app/api/admin/credits/route.ts
 import { NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies, headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Create Supabase client bound to the incoming request's Bearer token */
-function getSupabaseForRequest(req: Request): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const authHeader = req.headers.get("authorization") ?? "";
+/** Supabase client (Next 15-safe) */
+async function getSupabaseServer(req?: Request) {
+  const cookieStore = await cookies();
+  const headerStore = await headers();
+  const authHeader = req ? req.headers.get('authorization') ?? undefined : undefined;
 
-  // Attach Authorization so RPC can see auth.uid()
-  return createClient(url, anon, {
-    global: {
-      headers: authHeader ? { Authorization: authHeader } : {},
-    },
-  });
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options?: any) {
+          cookieStore.set({ name, value, ...(options ?? {}) });
+        },
+        remove(name: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
+        },
+      },
+      headers: {
+        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
+        "authorization": authHeader ?? headerStore.get("authorization") ?? "",
+      },
+      global: {
+        headers: {
+          Authorization: authHeader ?? headerStore.get("authorization") ?? "",
+        }
+      }
+    }
+  );
 }
 
 /** ตรวจสิทธิ์แอดมินจาก profiles.role หรือ rpc('is_admin') */
-async function assertAdmin(supabase: SupabaseClient) {
+async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
   try {
     const {
       data: { user },
@@ -89,7 +111,7 @@ async function assertAdmin(supabase: SupabaseClient) {
  */
 export async function GET(req: Request) {
   try {
-    const supabase = getSupabaseForRequest(req);
+    const supabase = await getSupabaseServer(req);
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -110,17 +132,7 @@ export async function GET(req: Request) {
         console.error("RPC fn_credit_balance exception:", e);
       }
 
-      let account:
-        | {
-            user_id: string;
-            daily_quota: number | null;
-            monthly_quota: number | null;
-            carry_balance: number | null;
-            last_daily_reset_at: string | null;
-            last_monthly_reset_at: string | null;
-            updated_at: string | null;
-          }
-        | null = null;
+      let account = null;
       try {
         const { data: accountData, error: accErr } = await supabase
           .from("credit_accounts")
@@ -136,15 +148,7 @@ export async function GET(req: Request) {
         console.error("Exception fetching credit_accounts:", e);
       }
 
-      let prof:
-        | {
-            user_id: string;
-            email: string;
-            display_name: string | null;
-            role: string | null;
-            status: string | null;
-          }
-        | null = null;
+      let prof = null;
       try {
         const { data: profData, error: profErr } = await supabase
           .from("profiles")
@@ -269,7 +273,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    const supabase = getSupabaseForRequest(req);
+    const supabase = await getSupabaseServer(req);
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -327,7 +331,7 @@ export async function POST(req: Request) {
  */
 export async function PATCH(req: Request) {
   try {
-    const supabase = getSupabaseForRequest(req);
+    const supabase = await getSupabaseServer(req);
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
