@@ -110,7 +110,17 @@ export async function GET(req: Request) {
         console.error("RPC fn_credit_balance exception:", e);
       }
 
-      let account = null;
+      let account:
+        | {
+            user_id: string;
+            daily_quota: number | null;
+            monthly_quota: number | null;
+            carry_balance: number | null;
+            last_daily_reset_at: string | null;
+            last_monthly_reset_at: string | null;
+            updated_at: string | null;
+          }
+        | null = null;
       try {
         const { data: accountData, error: accErr } = await supabase
           .from("credit_accounts")
@@ -126,7 +136,15 @@ export async function GET(req: Request) {
         console.error("Exception fetching credit_accounts:", e);
       }
 
-      let prof = null;
+      let prof:
+        | {
+            user_id: string;
+            email: string;
+            display_name: string | null;
+            role: string | null;
+            status: string | null;
+          }
+        | null = null;
       try {
         const { data: profData, error: profErr } = await supabase
           .from("profiles")
