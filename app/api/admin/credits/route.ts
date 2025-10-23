@@ -1,41 +1,26 @@
 // app/api/admin/credits/route.ts
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Supabase client (Next 15-safe) */
-async function getSupabaseServer() {
-  const cookieStore = await cookies();
-  const headerStore = await headers();
+/** Create Supabase client bound to the incoming request's Bearer token */
+function getSupabaseForRequest(req: Request): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const authHeader = req.headers.get("authorization") ?? "";
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options ?? {}) });
-        },
-        remove(name: string, options?: any) {
-          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
-        },
-      },
-      headers: {
-        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
-        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
-      },
-    }
-  );
+  // Attach Authorization so RPC can see auth.uid()
+  return createClient(url, anon, {
+    global: {
+      headers: authHeader ? { Authorization: authHeader } : {},
+    },
+  });
 }
 
 /** ตรวจสิทธิ์แอดมินจาก profiles.role หรือ rpc('is_admin') */
-async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
+async function assertAdmin(supabase: SupabaseClient) {
   try {
     const {
       data: { user },
@@ -104,7 +89,7 @@ async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer
  */
 export async function GET(req: Request) {
   try {
-    const supabase = await getSupabaseServer();
+    const supabase = getSupabaseForRequest(req);
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -266,7 +251,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    const supabase = await getSupabaseServer();
+    const supabase = getSupabaseForRequest(req);
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -324,7 +309,7 @@ export async function POST(req: Request) {
  */
 export async function PATCH(req: Request) {
   try {
-    const supabase = await getSupabaseServer();
+    const supabase = getSupabaseForRequest(req);
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
