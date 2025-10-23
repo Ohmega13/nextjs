@@ -199,58 +199,16 @@ export async function GET(req: Request) {
       });
     }
 
-    // --- โหมดลิสต์รวม (limit 100) ---
-    let accounts:
-      | {
-          user_id: string;
-          daily_quota: number | null;
-          monthly_quota: number | null;
-          carry_balance: number | null;
-          last_daily_reset_at: string | null;
-          last_monthly_reset_at: string | null;
-          updated_at: string | null;
-        }[]
-      | [] = [];
-    try {
-      const { data: rows, error: listErr } = await supabase
-        .from("credit_accounts")
-        .select(
-          "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
-        )
-        .order("updated_at", { ascending: false })
-        .limit(100);
-
-      if (listErr) {
-        console.error("credit_accounts list error:", listErr.message);
-        return NextResponse.json(
-          { ok: false, error: "failed_to_fetch_credit_accounts" },
-          { status: 500 }
-        );
-      }
-      accounts = rows ?? [];
-    } catch (e) {
-      console.error("credit_accounts list exception:", e);
-      return NextResponse.json(
-        { ok: false, error: "failed_to_fetch_credit_accounts" },
-        { status: 500 }
-      );
-    }
-
-    const userIds = accounts.map((a) => a.user_id);
+    // --- โหมดลิสต์รวม (limit 200: โปรไฟล์ก่อน แล้วค่อยผูกเครดิต) ---
+    // 1) ดึงโปรไฟล์ก่อน (รองรับกรณีที่ยังไม่มี row ใน credit_accounts)
     let profiles:
-      | {
-          user_id: string;
-          email: string | null;
-          display_name: string | null;
-          role: string | null;
-          status: string | null;
-        }[]
+      | { user_id: string; email: string | null; display_name: string | null; role: string | null; status: string | null }[]
       | [] = [];
     try {
       const { data: profRows, error: profErr } = await supabase
         .from("profiles")
         .select("user_id, email, display_name, role, status")
-        .in("user_id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
+        .limit(200);
       if (profErr) {
         console.warn("profiles list error:", profErr.message);
       } else {
@@ -260,24 +218,29 @@ export async function GET(req: Request) {
       console.warn("profiles list exception:", e);
     }
 
-    // ดึง balance แบบทีละคน (ถ้าฟังก์ชันไม่มี จะได้ null)
-    const balanceMap: Record<string, number> = {};
-    await Promise.all(
-      accounts.map(async (a) => {
-        try {
-          const { data: bal, error: balErr } = await supabase.rpc("fn_credit_balance", {
-            p_user: a.user_id,
-          });
-          if (!balErr && typeof bal === "number") {
-            balanceMap[a.user_id] = bal;
-          }
-        } catch {
-          // เงียบ ๆ
-        }
-      })
-    );
+    const userIds = profiles.map((p) => p.user_id);
 
-    const accountsData = (accounts ?? []) as Array<{
+    // 2) ดึงบัญชีเครดิตเฉพาะที่มี (left join แบบ manual)
+    let accounts:
+      | { user_id: string; daily_quota: number | null; monthly_quota: number | null; carry_balance: number | null; last_daily_reset_at: string | null; last_monthly_reset_at: string | null; updated_at: string | null }[]
+      | [] = [];
+    try {
+      const { data: rows, error: listErr } = await supabase
+        .from("credit_accounts")
+        .select(
+          "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
+        )
+        .in("user_id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
+      if (listErr) {
+        console.warn("credit_accounts list error:", listErr.message);
+      } else {
+        accounts = rows ?? [];
+      }
+    } catch (e) {
+      console.warn("credit_accounts list exception:", e);
+    }
+
+    const accountMap: Record<string, {
       user_id: string;
       daily_quota: number | null;
       monthly_quota: number | null;
@@ -285,14 +248,34 @@ export async function GET(req: Request) {
       last_daily_reset_at: string | null;
       last_monthly_reset_at: string | null;
       updated_at: string | null;
-    }>;
+    }> = {};
+    for (const a of accounts as any[]) {
+      if (a && a.user_id) accountMap[a.user_id] = a;
+    }
 
-    const items = accountsData.map((a) => ({
-      user_id: a.user_id,
-      profile: profiles.find((p) => p.user_id === a.user_id) ?? null,
-      account: a,
-      balance: balanceMap[a.user_id] ?? null,
-    }));
+    // 3) ลองดึง balance จาก RPC สำหรับ user ที่มีบัญชีเครดิต
+    const balanceMap: Record<string, number> = {};
+    await Promise.all(
+      Object.keys(accountMap).map(async (uid) => {
+        try {
+          const { data: bal, error: balErr } = await supabase.rpc("fn_credit_balance", { p_user: uid });
+          if (!balErr && typeof bal === "number") {
+            balanceMap[uid] = bal;
+          }
+        } catch {/* ignore */}
+      })
+    );
+
+    const items = (profiles as Array<{ user_id: string; email: string | null; display_name: string | null; role: string | null; status: string | null }>).map((p) => {
+      const acc = accountMap[p.user_id] ?? null;
+      const balance = balanceMap[p.user_id] ?? (acc?.carry_balance ?? 0);
+      return {
+        user_id: p.user_id,
+        profile: p,
+        account: acc,
+        balance,
+      };
+    });
 
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
