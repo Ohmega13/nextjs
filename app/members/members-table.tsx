@@ -7,7 +7,8 @@ type Row = {
   role: string;
   status: string;
   display_name: string | null;
-  credit_balance?: number;
+  credit_balance?: number; // from legacy API
+  balance?: number;        // from /api/admin/credits
   permissions: {
     tarot?: boolean;
     natal?: boolean;
@@ -47,7 +48,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
               <td className="px-3 py-2">{r.role}</td>
               <StatusDropdown user_id={r.user_id} status={r.status} />
-              <td className="px-3 py-2 text-right">{r.credit_balance ?? 0}</td>
+              <td className="px-3 py-2 text-right">{(r.credit_balance ?? r.balance ?? 0)}</td>
               <td className="px-3 py-2 text-center">
                 <button
                   className="rounded bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
@@ -56,17 +57,17 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                       alert('ยังไม่ได้เชื่อมต่อฟังก์ชันเติมเครดิตจากหน้าหลัก');
                       return;
                     }
-                    const input = prompt('กรุณากรอกจำนวนเครดิตที่ต้องการเติม');
+                    const input = prompt('กรุณากรอกจำนวนเครดิตที่ต้องการเติม (+/- ได้) เช่น 10 หรือ -5', '10');
                     if (!input) return;
                     const amount = Number(input);
-                    if (isNaN(amount) || amount <= 0) {
+                    if (isNaN(amount) || amount === 0) {
                       alert('จำนวนเครดิตไม่ถูกต้อง');
                       return;
                     }
+                    const note = prompt('หมายเหตุ (ถ้ามี)', 'admin top-up') || '';
                     try {
-                      await topup(r, amount);
-                      // แนะนำให้รีเฟรชจากฝั่ง parent หลังเรียก topup สำเร็จ
-                    } catch {
+                      await topup(r, amount, note);
+                    } catch (e) {
                       alert('เติมเครดิตไม่สำเร็จ');
                     }
                   }}
