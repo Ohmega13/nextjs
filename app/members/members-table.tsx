@@ -72,10 +72,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                     }
                     const note = prompt('หมายเหตุ (ถ้ามี)', 'admin top-up') || '';
                     try {
-                      const result = await topup(r, amount, note);
-                      if (result && typeof result === 'object' && 'error' in result) {
-                        alert(`เติมเครดิตไม่สำเร็จ: ${result.error}`);
-                      }
+                      await topup(r, amount, note);
                     } catch (e: any) {
                       alert(`เติมเครดิตไม่สำเร็จ: ${e?.message || e}`);
                     }
