@@ -16,6 +16,8 @@ type Row = {
     palm?: boolean;
     [k: string]: any;
   };
+  credit_balance?: number;
+  plan?: string;
 };
 
 export default function MembersClient() {
@@ -106,6 +108,35 @@ export default function MembersClient() {
     }
   };
 
+  const topup = async (r: Row, amount: number, note?: string) => {
+    if (!Number.isFinite(amount) || amount === 0) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      alert('กรุณาเข้าสู่ระบบก่อน');
+      return;
+    }
+    const res = await fetch('/api/admin/credits', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: r.user_id,
+        amount,
+        note: note ?? 'admin topup',
+      }),
+    });
+    if (!res.ok) {
+      const errTxt = await res.text().catch(() => '');
+      alert('เติมเครดิตไม่สำเร็จ');
+      console.error('admin topup failed', res.status, errTxt);
+      return;
+    }
+    await fetchRows();
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-semibold">สมาชิก / สิทธิ์การใช้งาน</h1>
@@ -121,7 +152,7 @@ export default function MembersClient() {
       )}
 
       {!loading && !err && (
-        <MembersTable rows={rows} toggle={toggle} />
+        <MembersTable rows={rows} toggle={toggle} topup={topup} />
       )}
 
       <p className="text-xs text-slate-500">
