@@ -169,25 +169,47 @@ export async function GET(req: Request) {
     }
 
     // ไม่ระบุ user_id: ลิสต์รวม (จำกัด 100)
-    let accounts = [];
+    let accounts: {
+      user_id: string;
+      daily_quota: number | null;
+      monthly_quota: number | null;
+      carry_balance: number | null;
+      last_daily_reset_at: string | null;
+      last_monthly_reset_at: string | null;
+      updated_at: string | null;
+    }[] = [];
     try {
       const { data: accountsData, error: accErr } = await supabase
         .from("credit_accounts")
-        .select("user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at")
+        .select(
+          "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
+        )
         .order("updated_at", { ascending: false })
         .limit(100);
       if (accErr) {
         console.error("Error fetching credit_accounts list:", accErr);
-        return NextResponse.json({ ok: false, error: "Failed to fetch credit accounts" }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: "Failed to fetch credit accounts" },
+          { status: 500 }
+        );
       }
-      accounts = accountsData ?? [];
+      accounts = (accountsData ?? []) as typeof accounts;
     } catch (e) {
       console.error("Exception fetching credit_accounts list:", e);
-      return NextResponse.json({ ok: false, error: "Failed to fetch credit accounts" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "Failed to fetch credit accounts" },
+        { status: 500 }
+      );
     }
 
     const userIds = accounts.map((a) => a.user_id);
-    let profiles = [];
+    let profiles: {
+      user_id: string;
+      email: string;
+      display_name: string | null;
+      role: string | null;
+      status: string | null;
+    }[] = [];
     try {
       const { data: profilesData, error: profErr } = await supabase
         .from("profiles")
