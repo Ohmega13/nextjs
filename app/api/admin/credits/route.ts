@@ -331,30 +331,71 @@ export async function POST(req: Request) {
         p_note: note,
       });
       if (error) {
-        // ถ้า policy หรือ RPC เช็คสิทธิ์โป้ง -> แปลงเป็น 403
-        const msg = (error as any)?.message ?? "";
-        if (msg.toLowerCase().includes("forbidden") || msg.toLowerCase().includes("not allowed")) {
+        // Normalize Supabase/Postgres error for easier debugging on client
+        const anyErr = error as any;
+        const msg = anyErr?.message ?? "";
+        const normalized = {
+          message: msg || "sp_admin_topup failed",
+          name: anyErr?.name ?? null,
+          code: anyErr?.code ?? null,
+          details: anyErr?.details ?? null,
+          hint: anyErr?.hint ?? null,
+          status: (anyErr?.status ?? anyErr?.statusCode) ?? null,
+          // Supabase JS sometimes nest Postgres error under "cause"/"originalError"
+          cause: anyErr?.cause ?? null,
+          original: anyErr?.original ?? anyErr?.originalError ?? null,
+        };
+
+        // Map authorization-ish errors to 403 for clearer UI handling
+        const lower = (msg || "").toLowerCase();
+        if (lower.includes("forbidden") || lower.includes("not allowed") || lower.includes("permission")) {
           return NextResponse.json(
-            { ok: false, error: "forbidden", message: msg },
+            { ok: false, error: "forbidden", meta: normalized },
             { status: 403 }
           );
         }
-        console.error("sp_admin_topup error:", error);
+
+        // When function not found / argument mismatch, keep 500 but tell client exactly which RPC
+        if (lower.includes("function") && (lower.includes("does not exist") || lower.includes("not exist"))) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "rpc_missing",
+              meta: normalized,
+              hint: "ตรวจสอบว่าสร้างฟังก์ชัน sp_admin_topup(p_user uuid, p_amount integer, p_note text) แล้วหรือยัง และสิทธิ์ GRANT execute.",
+            },
+            { status: 500 }
+          );
+        }
+
+        // Default: return rich error meta for investigation on client side
         return NextResponse.json(
-          { ok: false, error: "rpc_failed", message: msg || "sp_admin_topup failed" },
+          {
+            ok: false,
+            error: "rpc_failed",
+            meta: normalized,
+          },
           { status: 500 }
         );
       }
       return NextResponse.json({ ok: true, result: data ?? true });
     } catch (e: any) {
       console.error("sp_admin_topup exception:", e);
+      const normalized = {
+        message: e?.message ?? String(e),
+        name: e?.name ?? null,
+        code: e?.code ?? null,
+        details: e?.details ?? null,
+        hint: e?.hint ?? null,
+        stack: e?.stack ?? null,
+      };
       return NextResponse.json(
         {
           ok: false,
-          error: "rpc_missing_or_failed",
-          message:
-            "ไม่พบหรือเรียกใช้ sp_admin_topup ไม่ได้ กรุณาสร้างฟังก์ชัน (p_user uuid, p_amount int, p_note text)",
-          details: e?.message ?? String(e),
+          error: "rpc_exception",
+          meta: normalized,
+          hint:
+            "เกิด exception ขณะเรียก sp_admin_topup — ตรวจชื่อ/สัญญา parameter และสิทธิ์ของ SECURITY DEFINER/GRANT execute",
         },
         { status: 500 }
       );

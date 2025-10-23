@@ -129,9 +129,37 @@ export default function MembersClient() {
       }),
     });
     if (!res.ok) {
-      const errTxt = await res.text().catch(() => '');
-      alert('เติมเครดิตไม่สำเร็จ');
-      console.error('admin topup failed', res.status, errTxt);
+      let msg = 'เติมเครดิตไม่สำเร็จ';
+      try {
+        const errBody = await res.json();
+        // รองรับรูปแบบ error จาก API ที่เพิ่มไว้
+        const {
+          message,
+          error,
+          details,
+          hint,
+          code,
+          status,
+          meta,
+        } = errBody || {};
+        const m =
+          message ||
+          error ||
+          meta?.message ||
+          meta?.error ||
+          (typeof errBody === 'string' ? errBody : null);
+        const extra =
+          [code || status, details, hint]
+            .filter(Boolean)
+            .join(' | ');
+        msg = [m || msg, extra].filter(Boolean).join('\n');
+        console.error('admin topup failed', res.status, errBody);
+      } catch {
+        const errTxt = await res.text().catch(() => '');
+        if (errTxt) msg = `เติมเครดิตไม่สำเร็จ\n${errTxt}`;
+        console.error('admin topup failed (text)', res.status, errTxt);
+      }
+      alert(msg);
       return;
     }
     await fetchRows();
