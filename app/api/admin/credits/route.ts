@@ -277,7 +277,17 @@ export async function GET(req: Request) {
       })
     );
 
-    const items = accounts.map((a) => ({
+    const accountsData = (accounts ?? []) as Array<{
+      user_id: string;
+      daily_quota: number | null;
+      monthly_quota: number | null;
+      carry_balance: number | null;
+      last_daily_reset_at: string | null;
+      last_monthly_reset_at: string | null;
+      updated_at: string | null;
+    }>;
+
+    const items = accountsData.map((a) => ({
       user_id: a.user_id,
       profile: profiles.find((p) => p.user_id === a.user_id) ?? null,
       account: a,
