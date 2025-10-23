@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 
 type Row = {
   user_id: string;
@@ -18,33 +19,10 @@ type Row = {
 type Props = {
   rows: Row[];
   toggle: (row: Row, key: 'tarot' | 'natal' | 'palm', next: boolean) => void | Promise<void>;
+  topup?: (row: Row, amount: number, note?: string) => Promise<void>;
 };
 
-export default function MembersTable({ rows, toggle }: Props) {
-  const handleTopUp = async (user_id: string) => {
-    const input = prompt('กรุณากรอกจำนวนเงินที่ต้องการเติมเครดิต');
-    if (!input) return;
-    const amount = Number(input);
-    if (isNaN(amount) || amount <= 0) {
-      alert('จำนวนเงินไม่ถูกต้อง');
-      return;
-    }
-    try {
-      const res = await fetch('/api/admin/credits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id, amount }),
-      });
-      if (!res.ok) {
-        alert('เติมเครดิตไม่สำเร็จ');
-      } else {
-        alert('เติมเครดิตสำเร็จ');
-        window.location.reload();
-      }
-    } catch {
-      alert('เติมเครดิตไม่สำเร็จ');
-    }
-  };
+export default function MembersTable({ rows, toggle, topup }: Props) {
 
   return (
     <div className="rounded-xl border overflow-x-auto">
@@ -73,7 +51,25 @@ export default function MembersTable({ rows, toggle }: Props) {
               <td className="px-3 py-2 text-center">
                 <button
                   className="rounded bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
-                  onClick={() => handleTopUp(r.user_id)}
+                  onClick={async () => {
+                    if (!topup) {
+                      alert('ยังไม่ได้เชื่อมต่อฟังก์ชันเติมเครดิตจากหน้าหลัก');
+                      return;
+                    }
+                    const input = prompt('กรุณากรอกจำนวนเครดิตที่ต้องการเติม');
+                    if (!input) return;
+                    const amount = Number(input);
+                    if (isNaN(amount) || amount <= 0) {
+                      alert('จำนวนเครดิตไม่ถูกต้อง');
+                      return;
+                    }
+                    try {
+                      await topup(r, amount);
+                      // แนะนำให้รีเฟรชจากฝั่ง parent หลังเรียก topup สำเร็จ
+                    } catch {
+                      alert('เติมเครดิตไม่สำเร็จ');
+                    }
+                  }}
                 >
                   เติมเครดิต
                 </button>
@@ -129,7 +125,6 @@ export default function MembersTable({ rows, toggle }: Props) {
   );
 }
 // Dropdown สำหรับเปลี่ยนสถานะสมาชิก
-import React from 'react';
 
 function StatusDropdown({ user_id, status }: { user_id: string; status: string }) {
   const [value, setValue] = React.useState(status);
