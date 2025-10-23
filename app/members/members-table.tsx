@@ -48,7 +48,13 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
               <td className="px-3 py-2">{r.role}</td>
               <StatusDropdown user_id={r.user_id} status={r.status} />
-              <td className="px-3 py-2 text-right">{(r.credit_balance ?? r.balance ?? 0)}</td>
+              <td className="px-3 py-2 text-right">
+                {r.balance !== undefined && r.balance !== null ? (
+                  r.balance
+                ) : (
+                  <span className="text-slate-400">กำลังโหลดเครดิต...</span>
+                )}
+              </td>
               <td className="px-3 py-2 text-center">
                 <button
                   className="rounded bg-blue-600 px-2 py-1 text-white hover:bg-blue-700"
@@ -66,9 +72,12 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                     }
                     const note = prompt('หมายเหตุ (ถ้ามี)', 'admin top-up') || '';
                     try {
-                      await topup(r, amount, note);
-                    } catch (e) {
-                      alert('เติมเครดิตไม่สำเร็จ');
+                      const result = await topup(r, amount, note);
+                      if (result && typeof result === 'object' && 'error' in result) {
+                        alert(`เติมเครดิตไม่สำเร็จ: ${result.error}`);
+                      }
+                    } catch (e: any) {
+                      alert(`เติมเครดิตไม่สำเร็จ: ${e?.message || e}`);
                     }
                   }}
                 >
