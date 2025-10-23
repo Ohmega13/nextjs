@@ -38,7 +38,8 @@ export default function MembersClient() {
       return;
     }
 
-    const res = await fetch('/api/admin/members', {
+    // เรียก API ใหม่ที่รวมเครดิต
+    const res = await fetch('/api/admin/credits?withProfiles=1', {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
@@ -51,8 +52,20 @@ export default function MembersClient() {
       return;
     }
 
-    const data = (await res.json()) as { rows: Row[] };
-    setRows(data.rows || []);
+    const data = await res.json();
+
+    const mappedRows: Row[] = (data.items || []).map((item: any) => ({
+      user_id: item.user_id,
+      email: item.profile?.email || '-',
+      display_name: item.profile?.display_name || null,
+      role: item.profile?.role || 'member',
+      status: item.profile?.status || 'active',
+      permissions: item.permissions || {},
+      credit_balance: item.account?.carry_balance ?? 0,
+      plan: item.account?.plan ?? 'prepaid',
+    }));
+
+    setRows(mappedRows);
     setLoading(false);
   };
 
