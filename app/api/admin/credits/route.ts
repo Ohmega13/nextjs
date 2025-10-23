@@ -7,9 +7,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /** Supabase client (Next 15-safe) */
-function getSupabaseServer() {
-  const cookieStore = cookies();
-  const headerStore = headers();
+async function getSupabaseServer() {
+  const cookieStore = await cookies();
+  const headerStore = await headers();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,7 +35,7 @@ function getSupabaseServer() {
 }
 
 /** ตรวจสิทธิ์แอดมินจาก profiles.role หรือ rpc('is_admin') */
-async function assertAdmin(supabase: ReturnType<typeof getSupabaseServer>) {
+async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
   try {
     const {
       data: { user },
@@ -104,7 +104,7 @@ async function assertAdmin(supabase: ReturnType<typeof getSupabaseServer>) {
  */
 export async function GET(req: Request) {
   try {
-    const supabase = getSupabaseServer();
+    const supabase = await getSupabaseServer();
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -244,7 +244,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    const supabase = getSupabaseServer();
+    const supabase = await getSupabaseServer();
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
@@ -302,7 +302,7 @@ export async function POST(req: Request) {
  */
 export async function PATCH(req: Request) {
   try {
-    const supabase = getSupabaseServer();
+    const supabase = await getSupabaseServer();
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
