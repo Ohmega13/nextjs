@@ -6,11 +6,25 @@ import { cookies, headers } from "next/headers";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Supabase client (Next 15-safe) */
+/** Create Supabase server client (Next.js 15-safe) */
 async function getSupabaseServer(req?: Request) {
   const cookieStore = await cookies();
   const headerStore = await headers();
-  const authHeader = req ? req.headers.get('authorization') ?? undefined : undefined;
+
+  // ดึง Authorization header จาก req (ถ้ามี) หรือจาก framework headers
+  const authHeaderFromReq = req?.headers.get("authorization") ?? undefined;
+  const authHeader =
+    authHeaderFromReq ??
+    headerStore.get("authorization") ??
+    undefined;
+
+  // เตรียม headers สำหรับ Supabase (อย่าใส่ค่าว่าง)
+  const mergedHeaders: Record<string, string> = {};
+  const xfHost = headerStore.get("x-forwarded-host");
+  const xfProto = headerStore.get("x-forwarded-proto");
+  if (xfHost) mergedHeaders["x-forwarded-host"] = xfHost;
+  if (xfProto) mergedHeaders["x-forwarded-proto"] = xfProto;
+  if (authHeader) mergedHeaders["authorization"] = authHeader;
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,21 +41,16 @@ async function getSupabaseServer(req?: Request) {
           cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
         },
       },
-      headers: {
-        "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
-        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
-        "authorization": authHeader ?? headerStore.get("authorization") ?? "",
-      },
-      global: {
-        headers: {
-          Authorization: authHeader ?? headerStore.get("authorization") ?? "",
-        }
-      }
+      headers: mergedHeaders,
+      // ใส่ global.headers เฉพาะตอนมี Authorization เท่านั้น
+      ...(authHeader
+        ? { global: { headers: { Authorization: authHeader } } }
+        : {}),
     }
   );
 }
 
-/** ตรวจสิทธิ์แอดมินจาก profiles.role หรือ rpc('is_admin') */
+/** ตรวจสิทธิ์ admin: rpc('is_admin') ก่อน แล้วค่อย fallback profiles.role */
 async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
   try {
     const {
@@ -56,43 +65,33 @@ async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer
       };
     }
 
+    // 1) ลองด้วย RPC
+    try {
+      const { data: isAdminRpc, error: rpcErr } = await supabase.rpc("is_admin", {
+        uid: user.id as string,
+      });
+      if (rpcErr) {
+        // ถ้า RPC พัง ค่อย fallback profiles.role
+        console.warn("rpc is_admin error -> fallback to profiles.role:", rpcErr.message);
+      } else if (isAdminRpc) {
+        return { ok: true as const };
+      }
+    } catch (e) {
+      console.warn("rpc is_admin exception -> fallback:", e);
+    }
+
+    // 2) fallback: profiles.role = admin
     const { data: profile, error: profError } = await supabase
       .from("profiles")
       .select("role")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (profError) {
-      console.error("Error fetching profile for admin check:", profError);
+    if (profError || profile?.role !== "admin") {
       return {
         ok: false as const,
         res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
       };
-    }
-
-    if (profile?.role !== "admin") {
-      try {
-        const { data: isAdminRpc, error: rpcError } = await supabase.rpc("is_admin", { uid: user.id as string });
-        if (rpcError) {
-          console.error("RPC is_admin error:", rpcError);
-          return {
-            ok: false as const,
-            res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-          };
-        }
-        if (!isAdminRpc) {
-          return {
-            ok: false as const,
-            res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-          };
-        }
-      } catch (rpcEx) {
-        console.error("RPC is_admin exception:", rpcEx);
-        return {
-          ok: false as const,
-          res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-        };
-      }
     }
 
     return { ok: true as const };
@@ -106,8 +105,8 @@ async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer
 }
 
 /** GET /api/admin/credits
- * - ?user_id=...  -> รายละเอียดเครดิตของผู้ใช้คนนั้น
- * - (ไม่มี)       -> รายการเครดิตของผู้ใช้จำนวนหนึ่ง (รวมโปรไฟล์)
+ *  - ?user_id=... : รายละเอียดเครดิตผู้ใช้นั้น
+ *  - (ไม่มี)      : ลิสต์บัญชีเครดิต + โปรไฟล์ + ยอด balance (limit 100)
  */
 export async function GET(req: Request) {
   try {
@@ -118,158 +117,187 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("user_id");
 
-    // ถ้ามี user_id: คืนรายละเอียดเฉพาะคนนั้น
+    // --- โหมดดูของผู้ใช้คนเดียว ---
     if (userId) {
+      // balance (อาจไม่มีฟังก์ชัน -> คืน null)
       let balance: number | null = null;
       try {
-        const { data: balRpc, error: rpcErr } = await supabase.rpc("fn_credit_balance", { p_user: userId });
-        if (rpcErr) {
-          console.error("RPC fn_credit_balance error:", rpcErr);
-        } else if (typeof balRpc === "number") {
-          balance = balRpc;
+        const { data: balData, error: balErr } = await supabase.rpc("fn_credit_balance", {
+          p_user: userId,
+        });
+        if (balErr) {
+          console.warn("fn_credit_balance error:", balErr.message);
+        } else if (typeof balData === "number") {
+          balance = balData;
         }
       } catch (e) {
-        console.error("RPC fn_credit_balance exception:", e);
+        console.warn("fn_credit_balance exception:", e);
       }
 
-      let account = null;
+      // credit_accounts
+      let account:
+        | {
+            user_id: string;
+            daily_quota: number | null;
+            monthly_quota: number | null;
+            carry_balance: number | null;
+            last_daily_reset_at: string | null;
+            last_monthly_reset_at: string | null;
+            updated_at: string | null;
+          }
+        | null = null;
       try {
-        const { data: accountData, error: accErr } = await supabase
+        const { data: acc, error: accErr } = await supabase
           .from("credit_accounts")
-          .select("user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at")
+          .select(
+            "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
+          )
           .eq("user_id", userId)
           .maybeSingle();
         if (accErr) {
-          console.error("Error fetching credit_accounts:", accErr);
+          console.warn("fetch credit_accounts error:", accErr.message);
         } else {
-          account = accountData;
+          account = acc ?? null;
         }
       } catch (e) {
-        console.error("Exception fetching credit_accounts:", e);
+        console.warn("fetch credit_accounts exception:", e);
       }
 
-      let prof = null;
+      // profile
+      let profile:
+        | {
+            user_id: string;
+            email: string | null;
+            display_name: string | null;
+            role: string | null;
+            status: string | null;
+          }
+        | null = null;
       try {
-        const { data: profData, error: profErr } = await supabase
+        const { data: prof, error: profErr } = await supabase
           .from("profiles")
           .select("user_id, email, display_name, role, status")
           .eq("user_id", userId)
           .maybeSingle();
         if (profErr) {
-          console.error("Error fetching profile:", profErr);
+          console.warn("fetch profile error:", profErr.message);
         } else {
-          prof = profData;
+          profile = prof ?? null;
         }
       } catch (e) {
-        console.error("Exception fetching profile:", e);
+        console.warn("fetch profile exception:", e);
       }
 
       return NextResponse.json({
         ok: true,
         item: {
           user_id: userId,
-          profile: prof ?? null,
-          account: account ?? null,
-          balance, // อาจเป็น null ถ้าไม่มีฟังก์ชัน
+          profile,
+          account,
+          balance,
         },
       });
     }
 
-    // ไม่ระบุ user_id: ลิสต์รวม (จำกัด 100)
-    let accounts: {
-      user_id: string;
-      daily_quota: number | null;
-      monthly_quota: number | null;
-      carry_balance: number | null;
-      last_daily_reset_at: string | null;
-      last_monthly_reset_at: string | null;
-      updated_at: string | null;
-    }[] = [];
+    // --- โหมดลิสต์รวม (limit 100) ---
+    let accounts:
+      | {
+          user_id: string;
+          daily_quota: number | null;
+          monthly_quota: number | null;
+          carry_balance: number | null;
+          last_daily_reset_at: string | null;
+          last_monthly_reset_at: string | null;
+          updated_at: string | null;
+        }[]
+      | [] = [];
     try {
-      const { data: accountsData, error: accErr } = await supabase
+      const { data: rows, error: listErr } = await supabase
         .from("credit_accounts")
         .select(
           "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
         )
         .order("updated_at", { ascending: false })
         .limit(100);
-      if (accErr) {
-        console.error("Error fetching credit_accounts list:", accErr);
+
+      if (listErr) {
+        console.error("credit_accounts list error:", listErr.message);
         return NextResponse.json(
-          { ok: false, error: "Failed to fetch credit accounts" },
+          { ok: false, error: "failed_to_fetch_credit_accounts" },
           { status: 500 }
         );
       }
-      accounts = (accountsData ?? []) as typeof accounts;
+      accounts = rows ?? [];
     } catch (e) {
-      console.error("Exception fetching credit_accounts list:", e);
+      console.error("credit_accounts list exception:", e);
       return NextResponse.json(
-        { ok: false, error: "Failed to fetch credit accounts" },
+        { ok: false, error: "failed_to_fetch_credit_accounts" },
         { status: 500 }
       );
     }
 
     const userIds = accounts.map((a) => a.user_id);
-    let profiles: {
-      user_id: string;
-      email: string;
-      display_name: string | null;
-      role: string | null;
-      status: string | null;
-    }[] = [];
+    let profiles:
+      | {
+          user_id: string;
+          email: string | null;
+          display_name: string | null;
+          role: string | null;
+          status: string | null;
+        }[]
+      | [] = [];
     try {
-      const { data: profilesData, error: profErr } = await supabase
+      const { data: profRows, error: profErr } = await supabase
         .from("profiles")
         .select("user_id, email, display_name, role, status")
         .in("user_id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
       if (profErr) {
-        console.error("Error fetching profiles list:", profErr);
+        console.warn("profiles list error:", profErr.message);
       } else {
-        profiles = profilesData ?? [];
+        profiles = profRows ?? [];
       }
     } catch (e) {
-      console.error("Exception fetching profiles list:", e);
+      console.warn("profiles list exception:", e);
     }
 
-    // ลองยิงฟังก์ชัน balance แบบ batch (ถ้าไม่มีให้ข้าม)
+    // ดึง balance แบบทีละคน (ถ้าฟังก์ชันไม่มี จะได้ null)
     const balanceMap: Record<string, number> = {};
-    try {
-      await Promise.all(
-        accounts.map(async (a) => {
-          try {
-            const { data: bal, error: rpcErr } = await supabase.rpc("fn_credit_balance", { p_user: a.user_id });
-            if (rpcErr) {
-              console.error(`RPC fn_credit_balance error for user ${a.user_id}:`, rpcErr);
-            } else if (typeof bal === "number") {
-              balanceMap[a.user_id] = bal;
-            }
-          } catch (e) {
-            console.error(`RPC fn_credit_balance exception for user ${a.user_id}:`, e);
+    await Promise.all(
+      accounts.map(async (a) => {
+        try {
+          const { data: bal, error: balErr } = await supabase.rpc("fn_credit_balance", {
+            p_user: a.user_id,
+          });
+          if (!balErr && typeof bal === "number") {
+            balanceMap[a.user_id] = bal;
           }
-        })
-      );
-    } catch (e) {
-      console.error("Exception during batch balance fetch:", e);
-    }
+        } catch {
+          // เงียบ ๆ
+        }
+      })
+    );
 
-    const rows = accounts.map((a) => ({
+    const items = accounts.map((a) => ({
       user_id: a.user_id,
       profile: profiles.find((p) => p.user_id === a.user_id) ?? null,
       account: a,
       balance: balanceMap[a.user_id] ?? null,
     }));
 
-    return NextResponse.json({ ok: true, items: rows });
+    return NextResponse.json({ ok: true, items });
   } catch (e: any) {
     console.error("GET /api/admin/credits unexpected error:", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "fetch failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "fetch_failed" },
+      { status: 500 }
+    );
   }
 }
 
 /** POST /api/admin/credits
  * เติม/หักเครดิตแบบ manual
  * body: { user_id: string, amount: number, note?: string }
- * พยายามเรียก rpc('sp_admin_topup') ถ้าไม่มี จะแจ้งให้สร้างฟังก์ชัน
+ * เรียก rpc('sp_admin_topup') (ถ้าไม่มีให้สร้างตามสเปก)
  */
 export async function POST(req: Request) {
   try {
@@ -283,13 +311,15 @@ export async function POST(req: Request) {
     } catch {
       // ignore
     }
+
     const user_id = body?.user_id as string | undefined;
-    const amount = Number(body?.amount);
+    const amountRaw = body?.amount;
     const note = (body?.note as string | undefined) ?? null;
 
-    if (!user_id || !Number.isFinite(amount)) {
+    const amount = Number(amountRaw);
+    if (!user_id || !Number.isFinite(amount) || Math.trunc(amount) !== amount || amount === 0) {
       return NextResponse.json(
-        { ok: false, error: "invalid_payload: require { user_id, amount }" },
+        { ok: false, error: "invalid_payload: require { user_id, amount:int!=0 }" },
         { status: 400 }
       );
     }
@@ -301,33 +331,44 @@ export async function POST(req: Request) {
         p_note: note,
       });
       if (error) {
-        console.error("RPC sp_admin_topup error:", error);
-        throw error;
+        // ถ้า policy หรือ RPC เช็คสิทธิ์โป้ง -> แปลงเป็น 403
+        const msg = (error as any)?.message ?? "";
+        if (msg.toLowerCase().includes("forbidden") || msg.toLowerCase().includes("not allowed")) {
+          return NextResponse.json(
+            { ok: false, error: "forbidden", message: msg },
+            { status: 403 }
+          );
+        }
+        console.error("sp_admin_topup error:", error);
+        return NextResponse.json(
+          { ok: false, error: "rpc_failed", message: msg || "sp_admin_topup failed" },
+          { status: 500 }
+        );
       }
       return NextResponse.json({ ok: true, result: data ?? true });
-    } catch (err: any) {
-      console.error("RPC sp_admin_topup failed:", err);
+    } catch (e: any) {
+      console.error("sp_admin_topup exception:", e);
       return NextResponse.json(
         {
           ok: false,
           error: "rpc_missing_or_failed",
           message:
-            "ไม่พบฟังก์ชัน sp_admin_topup หรือเรียกใช้ไม่ได้ กรุณาสร้างฟังก์ชันนี้ใน Supabase ตามสเปค (p_user uuid, p_amount int, p_note text)",
-          details: err?.message ?? String(err),
+            "ไม่พบหรือเรียกใช้ sp_admin_topup ไม่ได้ กรุณาสร้างฟังก์ชัน (p_user uuid, p_amount int, p_note text)",
+          details: e?.message ?? String(e),
         },
         { status: 500 }
       );
     }
   } catch (e: any) {
     console.error("POST /api/admin/credits unexpected error:", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "topup failed" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "topup_failed" }, { status: 500 });
   }
 }
 
 /** PATCH /api/admin/credits
  * ตั้งค่า quota/แผนเครดิตของผู้ใช้
  * body: { user_id: string, daily_quota?: number, monthly_quota?: number }
- * บันทึกที่ตาราง credit_accounts (upsert on conflict user_id)
+ * upsert -> credit_accounts (on conflict user_id)
  */
 export async function PATCH(req: Request) {
   try {
@@ -341,6 +382,7 @@ export async function PATCH(req: Request) {
     } catch {
       // ignore
     }
+
     const user_id = body?.user_id as string | undefined;
     const daily_quota =
       typeof body?.daily_quota === "number" ? (body.daily_quota as number) : undefined;
@@ -360,7 +402,7 @@ export async function PATCH(req: Request) {
       );
     }
 
-    const payload: any = { user_id };
+    const payload: Record<string, any> = { user_id };
     if (daily_quota !== undefined) payload.daily_quota = daily_quota;
     if (monthly_quota !== undefined) payload.monthly_quota = monthly_quota;
 
@@ -372,17 +414,23 @@ export async function PATCH(req: Request) {
         .single();
 
       if (error) {
-        console.error("Error upserting credit_accounts:", error);
-        throw error;
+        console.error("upsert credit_accounts error:", error);
+        return NextResponse.json(
+          { ok: false, error: "failed_to_update_credit_account" },
+          { status: 500 }
+        );
       }
 
       return NextResponse.json({ ok: true, account: data });
     } catch (e) {
-      console.error("Exception upserting credit_accounts:", e);
-      return NextResponse.json({ ok: false, error: "Failed to update credit account" }, { status: 500 });
+      console.error("upsert credit_accounts exception:", e);
+      return NextResponse.json(
+        { ok: false, error: "failed_to_update_credit_account" },
+        { status: 500 }
+      );
     }
   } catch (e: any) {
     console.error("PATCH /api/admin/credits unexpected error:", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "patch failed" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "patch_failed" }, { status: 500 });
   }
 }
