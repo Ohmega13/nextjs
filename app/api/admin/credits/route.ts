@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
+import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -48,6 +49,16 @@ async function getSupabaseServer(req?: Request) {
         : {}),
     }
   );
+}
+
+/** Service-role client for server-side admin queries (bypass RLS). */
+function getSupabaseService() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createSupabaseAdminClient(url, serviceKey, {
+    auth: { persistSession: false },
+    global: { headers: { "X-Client-Info": "admin-api" } },
+  });
 }
 
 /** ตรวจสิทธิ์ admin: rpc('is_admin') ก่อน แล้วค่อย fallback profiles.role */
@@ -114,6 +125,8 @@ export async function GET(req: Request) {
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
+    const svc = getSupabaseService();
+
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("user_id");
 
@@ -122,7 +135,7 @@ export async function GET(req: Request) {
       // balance (อาจไม่มีฟังก์ชัน -> คืน null)
       let balance: number | null = null;
       try {
-        const { data: balData, error: balErr } = await supabase.rpc("fn_credit_balance", {
+        const { data: balData, error: balErr } = await svc.rpc("fn_credit_balance", {
           p_user: userId,
         });
         if (balErr) {
@@ -147,7 +160,7 @@ export async function GET(req: Request) {
           }
         | null = null;
       try {
-        const { data: acc, error: accErr } = await supabase
+        const { data: acc, error: accErr } = await svc
           .from("credit_accounts")
           .select(
             "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
@@ -174,7 +187,7 @@ export async function GET(req: Request) {
           }
         | null = null;
       try {
-        const { data: prof, error: profErr } = await supabase
+        const { data: prof, error: profErr } = await svc
           .from("profiles")
           .select("user_id, email, display_name, role, status")
           .eq("user_id", userId)
@@ -205,7 +218,7 @@ export async function GET(req: Request) {
       | { user_id: string; email: string | null; display_name: string | null; role: string | null; status: string | null }[]
       | [] = [];
     try {
-      const { data: profRows, error: profErr } = await supabase
+      const { data: profRows, error: profErr } = await svc
         .from("profiles")
         .select("user_id, email, display_name, role, status")
         .limit(200);
@@ -225,7 +238,7 @@ export async function GET(req: Request) {
       | { user_id: string; daily_quota: number | null; monthly_quota: number | null; carry_balance: number | null; last_daily_reset_at: string | null; last_monthly_reset_at: string | null; updated_at: string | null }[]
       | [] = [];
     try {
-      const { data: rows, error: listErr } = await supabase
+      const { data: rows, error: listErr } = await svc
         .from("credit_accounts")
         .select(
           "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
@@ -258,7 +271,7 @@ export async function GET(req: Request) {
     await Promise.all(
       Object.keys(accountMap).map(async (uid) => {
         try {
-          const { data: bal, error: balErr } = await supabase.rpc("fn_credit_balance", { p_user: uid });
+          const { data: bal, error: balErr } = await svc.rpc("fn_credit_balance", { p_user: uid });
           if (!balErr && typeof bal === "number") {
             balanceMap[uid] = bal;
           }
@@ -298,6 +311,8 @@ export async function POST(req: Request) {
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
+    const svc = getSupabaseService();
+
     let body: any = {};
     try {
       body = await req.json();
@@ -318,7 +333,7 @@ export async function POST(req: Request) {
     }
 
     try {
-      const { data, error } = await supabase.rpc("sp_admin_topup", {
+      const { data, error } = await svc.rpc("sp_admin_topup", {
         p_user: user_id,
         p_amount: amount,
         p_note: note,
@@ -410,6 +425,8 @@ export async function PATCH(req: Request) {
     const admin = await assertAdmin(supabase);
     if (!admin.ok) return admin.res;
 
+    const svc = getSupabaseService();
+
     let body: any = {};
     try {
       body = await req.json();
@@ -441,7 +458,7 @@ export async function PATCH(req: Request) {
     if (monthly_quota !== undefined) payload.monthly_quota = monthly_quota;
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await svc
         .from("credit_accounts")
         .upsert(payload, { onConflict: "user_id" })
         .select("user_id, daily_quota, monthly_quota, updated_at")
