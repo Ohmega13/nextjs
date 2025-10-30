@@ -154,8 +154,8 @@ export async function GET(req: Request) {
             daily_quota: number | null;
             monthly_quota: number | null;
             carry_balance: number | null;
-            last_daily_reset_at: string | null;
-            last_monthly_reset_at: string | null;
+            next_reset_at: string | null;
+            plan: string | null;
             updated_at: string | null;
           }
         | null = null;
@@ -163,7 +163,7 @@ export async function GET(req: Request) {
         const { data: acc, error: accErr } = await svc
           .from("credit_accounts")
           .select(
-            "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
+            "user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at"
           )
           .eq("user_id", userId)
           .maybeSingle();
@@ -235,13 +235,13 @@ export async function GET(req: Request) {
 
     // 2) ดึงบัญชีเครดิตเฉพาะที่มี (left join แบบ manual)
     let accounts:
-      | { user_id: string; daily_quota: number | null; monthly_quota: number | null; carry_balance: number | null; last_daily_reset_at: string | null; last_monthly_reset_at: string | null; updated_at: string | null }[]
+      | { user_id: string; daily_quota: number | null; monthly_quota: number | null; carry_balance: number | null; next_reset_at: string | null; plan: string | null; updated_at: string | null }[]
       | [] = [];
     try {
       const { data: rows, error: listErr } = await svc
         .from("credit_accounts")
         .select(
-          "user_id, daily_quota, monthly_quota, carry_balance, last_daily_reset_at, last_monthly_reset_at, updated_at"
+          "user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at"
         )
         .in("user_id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
       if (listErr) {
@@ -258,8 +258,8 @@ export async function GET(req: Request) {
       daily_quota: number | null;
       monthly_quota: number | null;
       carry_balance: number | null;
-      last_daily_reset_at: string | null;
-      last_monthly_reset_at: string | null;
+      next_reset_at: string | null;
+      plan: string | null;
       updated_at: string | null;
     }> = {};
     for (const a of accounts as any[]) {
@@ -461,7 +461,7 @@ export async function PATCH(req: Request) {
       const { data, error } = await svc
         .from("credit_accounts")
         .upsert(payload, { onConflict: "user_id" })
-        .select("user_id, daily_quota, monthly_quota, updated_at")
+        .select("user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at")
         .single();
 
       if (error) {
