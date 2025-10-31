@@ -201,13 +201,17 @@ export async function GET(req: Request) {
         console.warn("fetch profile exception:", e);
       }
 
+      const safeBalance = Number.isFinite(balance as any)
+        ? Number(balance)
+        : Number(account?.carry_balance ?? 0) || 0;
+
       return NextResponse.json({
         ok: true,
         item: {
           user_id: userId,
           profile,
           account,
-          balance,
+          balance: safeBalance,
         },
       });
     }
@@ -237,20 +241,24 @@ export async function GET(req: Request) {
     let accounts:
       | { user_id: string; daily_quota: number | null; monthly_quota: number | null; carry_balance: number | null; next_reset_at: string | null; plan: string | null; updated_at: string | null }[]
       | [] = [];
-    try {
-      const { data: rows, error: listErr } = await svc
-        .from("credit_accounts")
-        .select(
-          "user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at"
-        )
-        .in("user_id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
-      if (listErr) {
-        console.warn("credit_accounts list error:", listErr.message);
-      } else {
-        accounts = rows ?? [];
+    if (userIds.length > 0) {
+      try {
+        const { data: rows, error: listErr } = await svc
+          .from("credit_accounts")
+          .select(
+            "user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at"
+          )
+          .in("user_id", userIds);
+        if (listErr) {
+          console.warn("credit_accounts list error:", listErr.message);
+        } else {
+          accounts = rows ?? [];
+        }
+      } catch (e) {
+        console.warn("credit_accounts list exception:", e);
       }
-    } catch (e) {
-      console.warn("credit_accounts list exception:", e);
+    } else {
+      accounts = [];
     }
 
     const accountMap: Record<string, {
