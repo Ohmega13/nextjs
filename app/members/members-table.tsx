@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import { loadAllCredits } from '@/app/src/actions/adminCredits';
 
 type Row = {
   user_id: string;
@@ -25,6 +26,13 @@ type Props = {
 
 export default function MembersTable({ rows, toggle, topup }: Props) {
 
+  // Load credits for all users server-side (single call) and merge into rows
+  const creditMap = await loadAllCredits(); // { [user_id]: number }
+  const rowsWithBalance = (rows ?? []).map((m: any) => ({
+    ...m,
+    balance: creditMap[m.user_id] ?? 0,
+  }));
+
   return (
     <div className="rounded-xl border overflow-x-auto">
       <table className="w-full text-sm">
@@ -42,7 +50,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {rowsWithBalance.map((r) => (
             <tr key={r.user_id} className="border-t">
               <td className="px-3 py-2">{r.email}</td>
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
@@ -119,7 +127,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
             </tr>
           ))}
 
-          {rows.length === 0 && (
+          {rowsWithBalance.length === 0 && (
             <tr>
               <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
                 ยังไม่มีสมาชิก
