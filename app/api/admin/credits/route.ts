@@ -36,6 +36,10 @@ async function getSupabaseServer() {
         },
       },
       headers: mergedHeaders,
+      cookieOptions: {
+        sameSite: "lax",
+        secure: true,
+      },
     }
   );
 }

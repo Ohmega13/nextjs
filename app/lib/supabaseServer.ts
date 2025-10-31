@@ -36,6 +36,10 @@ export function createSupabaseServerClient() {
           }
         },
       },
+      cookieOptions: {
+        sameSite: 'lax',
+        secure: true,
+      },
     }
   );
 }

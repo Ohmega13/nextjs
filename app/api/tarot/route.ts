@@ -318,6 +318,10 @@ async function getSupabase(accessToken?: string) {
       global: accessToken
         ? { headers: { Authorization: `Bearer ${accessToken}` } }
         : undefined,
+      cookieOptions: {
+        sameSite: "lax",
+        secure: true,
+      },
     }
   );
 }

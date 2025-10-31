@@ -33,6 +33,10 @@ function getServerSupabase() {
           },
         },
         headers: mergedHeaders,
+        cookieOptions: {
+          sameSite: "lax",
+          secure: true,
+        },
       }
     );
   })();

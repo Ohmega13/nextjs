@@ -16,6 +16,7 @@ async function getSupabaseServer() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options?: any) {
+          cookieStore.set({ name, value: "", ...(options ?? {}) });
           cookieStore.set({ name, value, ...(options ?? {}) });
         },
         remove(name: string, options?: any) {
@@ -25,6 +26,11 @@ async function getSupabaseServer() {
       },
       headers: {
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
+      },
+      cookieOptions: {
+        sameSite: "lax",
+        secure: true,
       },
     }
   );

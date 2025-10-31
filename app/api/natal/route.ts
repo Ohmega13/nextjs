@@ -28,6 +28,11 @@ async function getSupabaseServer() {
       },
       headers: {
         "x-forwarded-host": headerStore.get("x-forwarded-host") ?? "",
+        "x-forwarded-proto": headerStore.get("x-forwarded-proto") ?? "",
+      },
+      cookieOptions: {
+        sameSite: "lax",
+        secure: true,
       },
     }
   );
