@@ -17,6 +17,8 @@ type Row = {
     [k: string]: any;
   };
   credit_balance?: number;
+  balance?: number;
+  carry_balance?: number;
   plan?: string;
 };
 
@@ -29,24 +31,13 @@ export default function MembersClient() {
     setLoading(true);
     setErr(null);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) {
-      setErr('กรุณาเข้าสู่ระบบก่อน');
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-
-    // เรียก API ใหม่ที่รวมเครดิต
-    const res = await fetch('/api/admin/credits?withProfiles=1', {
+    const res = await fetch('/api/admin/credits', {
       method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',
     });
 
     if (!res.ok) {
-      setErr(`โหลดข้อมูลล้มเหลว (${res.status})`);
+      setErr(`โหลดข้อมูลสมาชิก/เครดิตล้มเหลว (${res.status})`);
       setRows([]);
       setLoading(false);
       return;
@@ -56,13 +47,16 @@ export default function MembersClient() {
 
     const mappedRows: Row[] = (data.items || []).map((item: any) => ({
       user_id: item.user_id,
-      email: item.profile?.email || '-',
-      display_name: item.profile?.display_name || null,
-      role: item.profile?.role || 'member',
-      status: item.profile?.status || 'active',
+      email: item.email || '-',
+      display_name: item.display_name || null,
+      role: item.role || 'member',
+      status: item.status || 'active',
       permissions: item.permissions || {},
-      credit_balance: item.account?.carry_balance ?? 0,
-      plan: item.account?.plan ?? 'prepaid',
+      // accept either carry_balance or balance from API
+      credit_balance: item.carry_balance ?? item.balance ?? 0,
+      balance: item.balance ?? item.carry_balance ?? 0,
+      carry_balance: item.carry_balance ?? item.balance ?? 0,
+      plan: item.plan ?? 'prepaid',
     }));
 
     setRows(mappedRows);

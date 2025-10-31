@@ -1,6 +1,5 @@
 'use client';
 import React from 'react';
-import { loadAllCredits } from '@/app/src/actions/adminCredits';
 
 type Row = {
   user_id: string;
@@ -9,6 +8,7 @@ type Row = {
   status: string;
   display_name: string | null;
   credit_balance?: number; // from legacy API
+  carry_balance?: number;
   balance?: number;        // from /api/admin/credits
   permissions: {
     tarot?: boolean;
@@ -25,13 +25,6 @@ type Props = {
 };
 
 export default function MembersTable({ rows, toggle, topup }: Props) {
-
-  // Load credits for all users server-side (single call) and merge into rows
-  const creditMap = await loadAllCredits(); // { [user_id]: number }
-  const rowsWithBalance = (rows ?? []).map((m: any) => ({
-    ...m,
-    balance: creditMap[m.user_id] ?? 0,
-  }));
 
   return (
     <div className="rounded-xl border overflow-x-auto">
@@ -50,18 +43,23 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rowsWithBalance.map((r) => (
+          {rows.map((r) => (
             <tr key={r.user_id} className="border-t">
               <td className="px-3 py-2">{r.email}</td>
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
               <td className="px-3 py-2">{r.role}</td>
               <StatusDropdown user_id={r.user_id} status={r.status} />
               <td className="px-3 py-2 text-right">
-                {r.balance !== undefined && r.balance !== null ? (
-                  r.balance
-                ) : (
-                  <span className="text-slate-400">กำลังโหลดเครดิต...</span>
-                )}
+                {(() => {
+                  const bal =
+                    (r as any)?.balance ??
+                    (r as any)?.carry_balance ??
+                    (r as any)?.credit_balance ??
+                    null;
+                  return bal !== null && bal !== undefined
+                    ? Number(bal).toLocaleString('th-TH')
+                    : <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
+                })()}
               </td>
               <td className="px-3 py-2 text-center">
                 <button
@@ -127,7 +125,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
             </tr>
           ))}
 
-          {rowsWithBalance.length === 0 && (
+          {rows.length === 0 && (
             <tr>
               <td className="px-3 py-6 text-center text-slate-500" colSpan={9}>
                 ยังไม่มีสมาชิก
