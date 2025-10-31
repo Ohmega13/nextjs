@@ -52,7 +52,18 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (userErr || !user) {
-      return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      // Graceful fallback: not signed in on this host -> don't break UI
+      return Response.json(
+        {
+          ok: true,
+          balance: 0,
+          note: "no_session",
+        },
+        {
+          status: 200,
+          headers: { "Cache-Control": "no-store, max-age=0" },
+        }
+      );
     }
 
     const { data, error } = await supabase.rpc("fn_credit_balance", {
