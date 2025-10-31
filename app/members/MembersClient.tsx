@@ -45,19 +45,35 @@ export default function MembersClient() {
 
     const data = await res.json();
 
-    const mappedRows: Row[] = (data.items || []).map((item: any) => ({
-      user_id: item.user_id,
-      email: item.email || '-',
-      display_name: item.display_name || null,
-      role: item.role || 'member',
-      status: item.status || 'active',
-      permissions: item.permissions || {},
-      // accept either carry_balance or balance from API
-      credit_balance: item.carry_balance ?? item.balance ?? 0,
-      balance: item.balance ?? item.carry_balance ?? 0,
-      carry_balance: item.carry_balance ?? item.balance ?? 0,
-      plan: item.plan ?? 'prepaid',
-    }));
+    const mappedRows: Row[] = (data.items || data.data || []).map((item: any) => {
+      const p = item.profile ?? {};
+      const a = item.account ?? {};
+      const perms = item.permissions ?? {};
+
+      const user_id = item.user_id ?? p.user_id ?? a.user_id ?? '';
+      const email = p.email ?? item.email ?? '-';
+      const display_name = p.display_name ?? item.display_name ?? null;
+      const role = p.role ?? item.role ?? 'member';
+      const status = p.status ?? item.status ?? 'active';
+      const plan = a.plan ?? item.plan ?? 'prepaid';
+
+      const credit_balance = Number(
+        a.carry_balance ?? a.balance ?? item.carry_balance ?? item.balance ?? 0
+      ) || 0;
+
+      return {
+        user_id,
+        email,
+        display_name,
+        role,
+        status,
+        permissions: perms,
+        credit_balance,
+        balance: credit_balance,
+        carry_balance: credit_balance,
+        plan,
+      };
+    });
 
     setRows(mappedRows);
     setLoading(false);
