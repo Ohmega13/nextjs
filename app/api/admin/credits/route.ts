@@ -1,169 +1,96 @@
-// app/api/admin/credits/route.ts
-import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
+/**
+ * app/api/admin/credits/route.ts
+ * Admin-only credits API (header-based auth).
+ * - Auth: Authorization header validated via assertAdmin()
+ * - Data: Uses supaAdmin (service role) to query views/tables and call RPCs
+ */
+export const runtime = 'nodejs';
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+import { NextResponse } from 'next/server';
+import { supaAdmin, assertAdmin } from '@/lib/supabaseAdmin';
 
-/** Create Supabase server client (Next.js 15-safe) */
-async function getSupabaseServer(req?: Request) {
-  const cookieStore = await cookies();
-  const headerStore = await headers();
-
-  // ดึง Authorization header จาก req (ถ้ามี) หรือจาก framework headers
-  const authHeaderFromReq = req?.headers.get("authorization") ?? undefined;
-  const authHeader =
-    authHeaderFromReq ??
-    headerStore.get("authorization") ??
-    undefined;
-
-  // เตรียม headers สำหรับ Supabase (อย่าใส่ค่าว่าง)
-  const mergedHeaders: Record<string, string> = {};
-  const xfHost = headerStore.get("x-forwarded-host");
-  const xfProto = headerStore.get("x-forwarded-proto");
-  if (xfHost) mergedHeaders["x-forwarded-host"] = xfHost;
-  if (xfProto) mergedHeaders["x-forwarded-proto"] = xfProto;
-  if (authHeader) mergedHeaders["authorization"] = authHeader;
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options ?? {}) });
-        },
-        remove(name: string, options?: any) {
-          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
-        },
-      },
-      headers: mergedHeaders,
-      // ใส่ global.headers เฉพาะตอนมี Authorization เท่านั้น
-      ...(authHeader
-        ? { global: { headers: { Authorization: authHeader } } }
-        : {}),
-    }
-  );
+/** Ensure requester is admin by Authorization header. */
+async function ensureAdmin(req: Request) {
+  const authz = req.headers.get('authorization') || undefined;
+  if (!authz) {
+    const err: any = new Error('NO_AUTH');
+    err.status = 401;
+    throw err;
+  }
+  await assertAdmin(authz); // throws on invalid
 }
 
-/** Service-role client for server-side admin queries (bypass RLS). */
-function getSupabaseService() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createSupabaseAdminClient(url, serviceKey, {
-    auth: { persistSession: false },
-    global: { headers: { "X-Client-Info": "admin-api" } },
-  });
-}
-
-/** ตรวจสิทธิ์ admin: rpc('is_admin') ก่อน แล้วค่อย fallback profiles.role */
-async function assertAdmin(supabase: Awaited<ReturnType<typeof getSupabaseServer>>) {
+/** Safe helper to read single value of carry_balance for a user. */
+async function getBalanceForUser(userId: string): Promise<number> {
+  // 1) Prefer view (fast & denormalized)
   try {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
-
-    if (error || !user) {
-      return {
-        ok: false as const,
-        res: NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }),
-      };
-    }
-
-    // 1) ลองด้วย RPC
-    try {
-      const { data: isAdminRpc, error: rpcErr } = await supabase.rpc("is_admin", {
-        uid: user.id as string,
-      });
-      if (rpcErr) {
-        // ถ้า RPC พัง ค่อย fallback profiles.role
-        console.warn("rpc is_admin error -> fallback to profiles.role:", rpcErr.message);
-      } else if (isAdminRpc) {
-        return { ok: true as const };
-      }
-    } catch (e) {
-      console.warn("rpc is_admin exception -> fallback:", e);
-    }
-
-    // 2) fallback: profiles.role = admin
-    const { data: profile, error: profError } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
+    const { data, error } = await supaAdmin
+      .from('v_admin_members')
+      .select('carry_balance')
+      .eq('user_id', userId)
       .maybeSingle();
 
-    if (profError || profile?.role !== "admin") {
-      return {
-        ok: false as const,
-        res: NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 }),
-      };
+    if (!error && typeof data?.carry_balance === 'number') {
+      return Number(data.carry_balance);
     }
-
-    return { ok: true as const };
+    if (error) console.warn('v_admin_members balance error:', error.message);
   } catch (e) {
-    console.error("assertAdmin unexpected error:", e);
-    return {
-      ok: false as const,
-      res: NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 }),
-    };
+    console.warn('v_admin_members balance exception:', e);
   }
+
+  // 2) Fallback to RPC fn_credit_balance
+  try {
+    const { data, error } = await supaAdmin.rpc('fn_credit_balance', { p_user: userId });
+    if (!error && typeof data === 'number') return Number(data);
+    if (error) console.warn('fn_credit_balance error:', error.message);
+  } catch (e) {
+    console.warn('fn_credit_balance exception:', e);
+  }
+
+  // 3) Last resort: credit_accounts.carry_balance
+  try {
+    const { data, error } = await supaAdmin
+      .from('credit_accounts')
+      .select('carry_balance')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!error && typeof data?.carry_balance === 'number') return Number(data.carry_balance);
+    if (error) console.warn('credit_accounts fallback error:', error.message);
+  } catch (e) {
+    console.warn('credit_accounts fallback exception:', e);
+  }
+
+  return 0;
 }
 
 /** GET /api/admin/credits
- *  - ?user_id=... : รายละเอียดเครดิตผู้ใช้นั้น
- *  - (ไม่มี)      : ลิสต์บัญชีเครดิต + โปรไฟล์ + ยอด balance (limit 100)
+ *  - ?user_id=... : รายละเอียดเครดิตของ user นั้น
+ *  - (ไม่มี)      : รายการสรุปรวมจาก view
  */
 export async function GET(req: Request) {
   try {
-    const supabase = await getSupabaseServer(req);
-    const admin = await assertAdmin(supabase);
-    if (!admin.ok) return admin.res;
+    await ensureAdmin(req);
 
-    const svc = getSupabaseService();
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("user_id");
+    const userId = searchParams.get('user_id');
 
-    // --- โหมดดูของผู้ใช้คนเดียว (ยังคงดึงรายละเอียด account แบบเดิม + เสริมด้วย view) ---
     if (userId) {
-      // 1) ลองดึงจากวิวก่อน เพื่อให้ได้ carry_balance เร็ว ๆ
-      let viewRow:
-        | {
-            user_id: string;
-            email: string | null;
-            display_name: string | null;
-            role: string | null;
-            status: string | null;
-            tarot: boolean | null;
-            natal: boolean | null;
-            palm: boolean | null;
-            carry_balance: number | null;
-          }
+      // ดึงโปรไฟล์ (เผื่อ UI ใช้)
+      let profile:
+        | { user_id: string; email: string | null; display_name: string | null; role: string | null; status: string | null }
         | null = null;
-
       try {
-        const { data: vrow, error: vErr } = await svc
-          .from("v_admin_members")
-          .select(
-            "user_id, email, display_name, role, status, tarot, natal, palm, carry_balance"
-          )
-          .eq("user_id", userId)
+        const { data, error } = await supaAdmin
+          .from('profiles')
+          .select('user_id, email, display_name, role, status')
+          .eq('user_id', userId)
           .maybeSingle();
-        if (vErr) {
-          console.warn("v_admin_members single error:", vErr.message);
-        } else {
-          viewRow = vrow ?? null;
-        }
+        if (!error) profile = data ?? null;
       } catch (e) {
-        console.warn("v_admin_members single exception:", e);
+        console.warn('profiles single exception:', e);
       }
 
-      // 2) ดึง account รายละเอียด (ถ้ามี)
+      // ดึงข้อมูลบัญชีเครดิต (optional)
       let account:
         | {
             user_id: string;
@@ -175,110 +102,35 @@ export async function GET(req: Request) {
             updated_at: string | null;
           }
         | null = null;
-
       try {
-        const { data: acc, error: accErr } = await svc
-          .from("credit_accounts")
-          .select(
-            "user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at"
-          )
-          .eq("user_id", userId)
+        const { data, error } = await supaAdmin
+          .from('credit_accounts')
+          .select('user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at')
+          .eq('user_id', userId)
           .maybeSingle();
-        if (accErr) {
-          console.warn("fetch credit_accounts error:", accErr.message);
-        } else {
-          account = acc ?? null;
-        }
+        if (!error) account = data ?? null;
       } catch (e) {
-        console.warn("fetch credit_accounts exception:", e);
+        console.warn('credit_accounts single exception:', e);
       }
 
-      // 3) ดึงโปรไฟล์ (กรณีอยากได้ข้อมูล role/status/email/display_name ที่อัปเดตล่าสุด)
-      let profile:
-        | {
-            user_id: string;
-            email: string | null;
-            display_name: string | null;
-            role: string | null;
-            status: string | null;
-          }
-        | null = null;
-
-      try {
-        const { data: prof, error: profErr } = await svc
-          .from("profiles")
-          .select("user_id, email, display_name, role, status")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (profErr) {
-          console.warn("fetch profile error:", profErr.message);
-        } else {
-          profile = prof ?? null;
-        }
-      } catch (e) {
-        console.warn("fetch profile exception:", e);
-      }
-
-      // 4) คำนวณ balance: ให้ลำดับความสำคัญ view.carry_balance > fn_credit_balance > account.carry_balance
-      let balance: number | null = null;
-
-      if (typeof viewRow?.carry_balance === "number") {
-        balance = viewRow.carry_balance!;
-      } else {
-        try {
-          const { data: balData, error: balErr } = await svc.rpc("fn_credit_balance", {
-            p_user: userId,
-          });
-          if (balErr) {
-            console.warn("fn_credit_balance error:", balErr.message);
-          } else if (typeof balData === "number") {
-            balance = balData;
-          }
-        } catch (e) {
-          console.warn("fn_credit_balance exception:", e);
-        }
-      }
-
-      const safeBalance =
-        Number.isFinite(balance as any)
-          ? Number(balance)
-          : Number(account?.carry_balance ?? 0) || 0;
+      const balance = await getBalanceForUser(userId);
 
       return NextResponse.json({
         ok: true,
-        item: {
-          user_id: userId,
-          profile: profile ?? (viewRow
-            ? {
-                user_id: viewRow.user_id,
-                email: viewRow.email ?? null,
-                display_name: viewRow.display_name ?? null,
-                role: viewRow.role ?? null,
-                status: viewRow.status ?? null,
-              }
-            : null),
-          account,
-          balance: safeBalance,
-        },
+        item: { user_id: userId, profile, account, balance },
       });
     }
 
-    // --- โหมดลิสต์รวม: ดึงจากวิวเดียวจบ (เลี่ยง 400 จากการเรียก Rest v1 หลายตาราง) ---
-    const { data: rows, error: viewErr } = await svc
-      .from("v_admin_members")
-      .select("user_id, email, display_name, role, status, carry_balance")
-      .order("display_name", { ascending: true, nullsFirst: true });
+    // รวมทั้งหมดจาก view เดียว
+    const { data: rows, error } = await supaAdmin
+      .from('v_admin_members')
+      .select('user_id, email, display_name, role, status, carry_balance')
+      .order('display_name', { ascending: true });
 
-    if (viewErr) {
-      console.error("v_admin_members list error:", viewErr);
-      return NextResponse.json(
-        { ok: false, error: viewErr.message },
-        { status: 500 }
-      );
-    }
+    if (error) throw error;
 
     const items =
-      (rows ?? []).map(r => ({
+      rows?.map((r: any) => ({
         user_id: r.user_id,
         profile: {
           user_id: r.user_id,
@@ -287,32 +139,32 @@ export async function GET(req: Request) {
           role: r.role ?? null,
           status: r.status ?? null,
         },
-        account: null,                  // ถ้าหน้า UI อยากได้ quota/plan ค่อยยิงรายละเอียดรายคนทีหลัง
+        account: null, // ถ้าต้องการ quota/plan ค่อยยิงรายคน
         balance: Number(r.carry_balance ?? 0),
-      }));
+      })) ?? [];
 
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
-    console.error("GET /api/admin/credits unexpected error:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "fetch_failed" },
-      { status: 500 }
-    );
+    console.error('/api/admin/credits GET error:', e?.message || e, e?.stack);
+    const code =
+      e?.status ??
+      (e?.message === 'NO_AUTH' || e?.message === 'BAD_AUTH'
+        ? 401
+        : e?.message === 'FORBIDDEN'
+        ? 403
+        : 500);
+    return NextResponse.json({ ok: false, error: e?.message ?? 'INTERNAL' }, { status: code });
   }
 }
 
 /** POST /api/admin/credits
- * เติม/หักเครดิตแบบ manual
+ * เติม/หักเครดิต (manual top-up)
  * body: { user_id: string, amount: number, note?: string }
- * เรียก rpc('sp_admin_topup') (ถ้าไม่มีให้สร้างตามสเปก)
+ * ใช้ RPC sp_admin_topup(p_user uuid, p_amount integer, p_note text)
  */
 export async function POST(req: Request) {
   try {
-    const supabase = await getSupabaseServer(req);
-    const admin = await assertAdmin(supabase);
-    if (!admin.ok) return admin.res;
-
-    const svc = getSupabaseService();
+    await ensureAdmin(req);
 
     let body: any = {};
     try {
@@ -322,111 +174,45 @@ export async function POST(req: Request) {
     }
 
     const user_id = body?.user_id as string | undefined;
-    const amountRaw = body?.amount;
+    const amount = Number(body?.amount);
     const note = (body?.note as string | undefined) ?? null;
 
-    const amount = Number(amountRaw);
     if (!user_id || !Number.isFinite(amount) || Math.trunc(amount) !== amount || amount === 0) {
       return NextResponse.json(
-        { ok: false, error: "invalid_payload: require { user_id, amount:int!=0 }" },
-        { status: 400 }
+        { ok: false, error: 'invalid_payload: require { user_id, amount:int!=0 }' },
+        { status: 400 },
       );
     }
 
-    try {
-      const { data, error } = await svc.rpc("sp_admin_topup", {
-        p_user: user_id,
-        p_amount: amount,
-        p_note: note,
-      });
-      if (error) {
-        // Normalize Supabase/Postgres error for easier debugging on client
-        const anyErr = error as any;
-        const msg = anyErr?.message ?? "";
-        const normalized = {
-          message: msg || "sp_admin_topup failed",
-          name: anyErr?.name ?? null,
-          code: anyErr?.code ?? null,
-          details: anyErr?.details ?? null,
-          hint: anyErr?.hint ?? null,
-          status: (anyErr?.status ?? anyErr?.statusCode) ?? null,
-          // Supabase JS sometimes nest Postgres error under "cause"/"originalError"
-          cause: anyErr?.cause ?? null,
-          original: anyErr?.original ?? anyErr?.originalError ?? null,
-        };
+    const { data, error } = await supaAdmin.rpc('sp_admin_topup', {
+      p_user: user_id,
+      p_amount: amount,
+      p_note: note,
+    });
 
-        // Map authorization-ish errors to 403 for clearer UI handling
-        const lower = (msg || "").toLowerCase();
-        if (lower.includes("forbidden") || lower.includes("not allowed") || lower.includes("permission")) {
-          return NextResponse.json(
-            { ok: false, error: "forbidden", meta: normalized },
-            { status: 403 }
-          );
-        }
-
-        // When function not found / argument mismatch, keep 500 but tell client exactly which RPC
-        if (lower.includes("function") && (lower.includes("does not exist") || lower.includes("not exist"))) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: "rpc_missing",
-              meta: normalized,
-              hint: "ตรวจสอบว่าสร้างฟังก์ชัน sp_admin_topup(p_user uuid, p_amount integer, p_note text) แล้วหรือยัง และสิทธิ์ GRANT execute.",
-            },
-            { status: 500 }
-          );
-        }
-
-        // Default: return rich error meta for investigation on client side
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "rpc_failed",
-            meta: normalized,
-          },
-          { status: 500 }
-        );
+    if (error) {
+      const msg = (error as any)?.message?.toLowerCase?.() ?? '';
+      if (msg.includes('forbidden') || msg.includes('permission')) {
+        return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
       }
-      return NextResponse.json({ ok: true, result: data ?? true });
-    } catch (e: any) {
-      console.error("sp_admin_topup exception:", e);
-      const normalized = {
-        message: e?.message ?? String(e),
-        name: e?.name ?? null,
-        code: e?.code ?? null,
-        details: e?.details ?? null,
-        hint: e?.hint ?? null,
-        stack: e?.stack ?? null,
-      };
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "rpc_exception",
-          meta: normalized,
-          hint:
-            "เกิด exception ขณะเรียก sp_admin_topup — ตรวจชื่อ/สัญญา parameter และสิทธิ์ของ SECURITY DEFINER/GRANT execute",
-        },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: 'rpc_failed', meta: error }, { status: 500 });
     }
+
+    return NextResponse.json({ ok: true, result: data ?? true });
   } catch (e: any) {
-    console.error("POST /api/admin/credits unexpected error:", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "topup_failed" }, { status: 500 });
+    console.error('/api/admin/credits POST error:', e?.message || e, e?.stack);
+    const code = e?.status ?? 500;
+    return NextResponse.json({ ok: false, error: e?.message ?? 'INTERNAL' }, { status: code });
   }
 }
 
 /** PATCH /api/admin/credits
- * ตั้งค่า quota/แผนเครดิตของผู้ใช้
+ * ตั้ง quota/แผนเครดิต
  * body: { user_id: string, daily_quota?: number, monthly_quota?: number }
- * upsert -> credit_accounts (on conflict user_id)
  */
 export async function PATCH(req: Request) {
   try {
-    const supabase = await getSupabaseServer(req);
-    const admin = await assertAdmin(supabase);
-    if (!admin.ok) return admin.res;
-
-    const svc = getSupabaseService();
+    await ensureAdmin(req);
 
     let body: any = {};
     try {
@@ -437,20 +223,17 @@ export async function PATCH(req: Request) {
 
     const user_id = body?.user_id as string | undefined;
     const daily_quota =
-      typeof body?.daily_quota === "number" ? (body.daily_quota as number) : undefined;
+      typeof body?.daily_quota === 'number' ? (body.daily_quota as number) : undefined;
     const monthly_quota =
-      typeof body?.monthly_quota === "number" ? (body.monthly_quota as number) : undefined;
+      typeof body?.monthly_quota === 'number' ? (body.monthly_quota as number) : undefined;
 
     if (!user_id) {
-      return NextResponse.json(
-        { ok: false, error: "invalid_payload: require { user_id }" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: 'invalid_payload: require { user_id }' }, { status: 400 });
     }
     if (daily_quota === undefined && monthly_quota === undefined) {
       return NextResponse.json(
-        { ok: false, error: "nothing_to_update: include daily_quota or monthly_quota" },
-        { status: 400 }
+        { ok: false, error: 'nothing_to_update: include daily_quota or monthly_quota' },
+        { status: 400 },
       );
     }
 
@@ -458,31 +241,21 @@ export async function PATCH(req: Request) {
     if (daily_quota !== undefined) payload.daily_quota = daily_quota;
     if (monthly_quota !== undefined) payload.monthly_quota = monthly_quota;
 
-    try {
-      const { data, error } = await svc
-        .from("credit_accounts")
-        .upsert(payload, { onConflict: "user_id" })
-        .select("user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at")
-        .single();
+    const { data, error } = await supaAdmin
+      .from('credit_accounts')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select('user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at')
+      .single();
 
-      if (error) {
-        console.error("upsert credit_accounts error:", error);
-        return NextResponse.json(
-          { ok: false, error: "failed_to_update_credit_account" },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({ ok: true, account: data });
-    } catch (e) {
-      console.error("upsert credit_accounts exception:", e);
-      return NextResponse.json(
-        { ok: false, error: "failed_to_update_credit_account" },
-        { status: 500 }
-      );
+    if (error) {
+      console.error('upsert credit_accounts error:', error);
+      return NextResponse.json({ ok: false, error: 'failed_to_update_credit_account' }, { status: 500 });
     }
+
+    return NextResponse.json({ ok: true, account: data });
   } catch (e: any) {
-    console.error("PATCH /api/admin/credits unexpected error:", e);
-    return NextResponse.json({ ok: false, error: e?.message ?? "patch_failed" }, { status: 500 });
+    console.error('/api/admin/credits PATCH error:', e?.message || e, e?.stack);
+    const code = e?.status ?? 500;
+    return NextResponse.json({ ok: false, error: e?.message ?? 'INTERNAL' }, { status: code });
   }
 }
