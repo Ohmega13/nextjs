@@ -126,28 +126,44 @@ export async function GET(req: Request) {
     if (!admin.ok) return admin.res;
 
     const svc = getSupabaseService();
-
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("user_id");
 
-    // --- โหมดดูของผู้ใช้คนเดียว ---
+    // --- โหมดดูของผู้ใช้คนเดียว (ยังคงดึงรายละเอียด account แบบเดิม + เสริมด้วย view) ---
     if (userId) {
-      // balance (อาจไม่มีฟังก์ชัน -> คืน null)
-      let balance: number | null = null;
+      // 1) ลองดึงจากวิวก่อน เพื่อให้ได้ carry_balance เร็ว ๆ
+      let viewRow:
+        | {
+            user_id: string;
+            email: string | null;
+            display_name: string | null;
+            role: string | null;
+            status: string | null;
+            tarot: boolean | null;
+            natal: boolean | null;
+            palm: boolean | null;
+            carry_balance: number | null;
+          }
+        | null = null;
+
       try {
-        const { data: balData, error: balErr } = await svc.rpc("fn_credit_balance", {
-          p_user: userId,
-        });
-        if (balErr) {
-          console.warn("fn_credit_balance error:", balErr.message);
-        } else if (typeof balData === "number") {
-          balance = balData;
+        const { data: vrow, error: vErr } = await svc
+          .from("v_admin_members")
+          .select(
+            "user_id, email, display_name, role, status, tarot, natal, palm, carry_balance"
+          )
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (vErr) {
+          console.warn("v_admin_members single error:", vErr.message);
+        } else {
+          viewRow = vrow ?? null;
         }
       } catch (e) {
-        console.warn("fn_credit_balance exception:", e);
+        console.warn("v_admin_members single exception:", e);
       }
 
-      // credit_accounts
+      // 2) ดึง account รายละเอียด (ถ้ามี)
       let account:
         | {
             user_id: string;
@@ -159,6 +175,7 @@ export async function GET(req: Request) {
             updated_at: string | null;
           }
         | null = null;
+
       try {
         const { data: acc, error: accErr } = await svc
           .from("credit_accounts")
@@ -176,7 +193,7 @@ export async function GET(req: Request) {
         console.warn("fetch credit_accounts exception:", e);
       }
 
-      // profile
+      // 3) ดึงโปรไฟล์ (กรณีอยากได้ข้อมูล role/status/email/display_name ที่อัปเดตล่าสุด)
       let profile:
         | {
             user_id: string;
@@ -186,6 +203,7 @@ export async function GET(req: Request) {
             status: string | null;
           }
         | null = null;
+
       try {
         const { data: prof, error: profErr } = await svc
           .from("profiles")
@@ -201,102 +219,77 @@ export async function GET(req: Request) {
         console.warn("fetch profile exception:", e);
       }
 
-      const safeBalance = Number.isFinite(balance as any)
-        ? Number(balance)
-        : Number(account?.carry_balance ?? 0) || 0;
+      // 4) คำนวณ balance: ให้ลำดับความสำคัญ view.carry_balance > fn_credit_balance > account.carry_balance
+      let balance: number | null = null;
+
+      if (typeof viewRow?.carry_balance === "number") {
+        balance = viewRow.carry_balance!;
+      } else {
+        try {
+          const { data: balData, error: balErr } = await svc.rpc("fn_credit_balance", {
+            p_user: userId,
+          });
+          if (balErr) {
+            console.warn("fn_credit_balance error:", balErr.message);
+          } else if (typeof balData === "number") {
+            balance = balData;
+          }
+        } catch (e) {
+          console.warn("fn_credit_balance exception:", e);
+        }
+      }
+
+      const safeBalance =
+        Number.isFinite(balance as any)
+          ? Number(balance)
+          : Number(account?.carry_balance ?? 0) || 0;
 
       return NextResponse.json({
         ok: true,
         item: {
           user_id: userId,
-          profile,
+          profile: profile ?? (viewRow
+            ? {
+                user_id: viewRow.user_id,
+                email: viewRow.email ?? null,
+                display_name: viewRow.display_name ?? null,
+                role: viewRow.role ?? null,
+                status: viewRow.status ?? null,
+              }
+            : null),
           account,
           balance: safeBalance,
         },
       });
     }
 
-    // --- โหมดลิสต์รวม (limit 200: โปรไฟล์ก่อน แล้วค่อยผูกเครดิต) ---
-    // 1) ดึงโปรไฟล์ก่อน (รองรับกรณีที่ยังไม่มี row ใน credit_accounts)
-    let profiles:
-      | { user_id: string; email: string | null; display_name: string | null; role: string | null; status: string | null }[]
-      | [] = [];
-    try {
-      const { data: profRows, error: profErr } = await svc
-        .from("profiles")
-        .select("user_id, email, display_name, role, status")
-        .limit(200);
-      if (profErr) {
-        console.warn("profiles list error:", profErr.message);
-      } else {
-        profiles = profRows ?? [];
-      }
-    } catch (e) {
-      console.warn("profiles list exception:", e);
+    // --- โหมดลิสต์รวม: ดึงจากวิวเดียวจบ (เลี่ยง 400 จากการเรียก Rest v1 หลายตาราง) ---
+    const { data: rows, error: viewErr } = await svc
+      .from("v_admin_members")
+      .select("user_id, email, display_name, role, status, carry_balance")
+      .order("display_name", { ascending: true, nullsFirst: true });
+
+    if (viewErr) {
+      console.error("v_admin_members list error:", viewErr);
+      return NextResponse.json(
+        { ok: false, error: viewErr.message },
+        { status: 500 }
+      );
     }
 
-    const userIds = profiles.map((p) => p.user_id);
-
-    // 2) ดึงบัญชีเครดิตเฉพาะที่มี (left join แบบ manual)
-    let accounts:
-      | { user_id: string; daily_quota: number | null; monthly_quota: number | null; carry_balance: number | null; next_reset_at: string | null; plan: string | null; updated_at: string | null }[]
-      | [] = [];
-    if (userIds.length > 0) {
-      try {
-        const { data: rows, error: listErr } = await svc
-          .from("credit_accounts")
-          .select(
-            "user_id, daily_quota, monthly_quota, carry_balance, next_reset_at, plan, updated_at"
-          )
-          .in("user_id", userIds);
-        if (listErr) {
-          console.warn("credit_accounts list error:", listErr.message);
-        } else {
-          accounts = rows ?? [];
-        }
-      } catch (e) {
-        console.warn("credit_accounts list exception:", e);
-      }
-    } else {
-      accounts = [];
-    }
-
-    const accountMap: Record<string, {
-      user_id: string;
-      daily_quota: number | null;
-      monthly_quota: number | null;
-      carry_balance: number | null;
-      next_reset_at: string | null;
-      plan: string | null;
-      updated_at: string | null;
-    }> = {};
-    for (const a of accounts as any[]) {
-      if (a && a.user_id) accountMap[a.user_id] = a;
-    }
-
-    // 3) ลองดึง balance จาก RPC สำหรับ user ที่มีบัญชีเครดิต
-    const balanceMap: Record<string, number> = {};
-    await Promise.all(
-      Object.keys(accountMap).map(async (uid) => {
-        try {
-          const { data: bal, error: balErr } = await svc.rpc("fn_credit_balance", { p_user: uid });
-          if (!balErr && typeof bal === "number") {
-            balanceMap[uid] = bal;
-          }
-        } catch {/* ignore */}
-      })
-    );
-
-    const items = (profiles as Array<{ user_id: string; email: string | null; display_name: string | null; role: string | null; status: string | null }>).map((p) => {
-      const acc = accountMap[p.user_id] ?? null;
-      const balance = balanceMap[p.user_id] ?? (acc?.carry_balance ?? 0);
-      return {
-        user_id: p.user_id,
-        profile: p,
-        account: acc,
-        balance,
-      };
-    });
+    const items =
+      (rows ?? []).map(r => ({
+        user_id: r.user_id,
+        profile: {
+          user_id: r.user_id,
+          email: r.email ?? null,
+          display_name: r.display_name ?? null,
+          role: r.role ?? null,
+          status: r.status ?? null,
+        },
+        account: null,                  // ถ้าหน้า UI อยากได้ quota/plan ค่อยยิงรายละเอียดรายคนทีหลัง
+        balance: Number(r.carry_balance ?? 0),
+      }));
 
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
