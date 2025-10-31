@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
+import { assertAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,7 +50,25 @@ function getSupabaseService() {
 }
 
 /** Assert current cookie-authenticated user is admin. */
+/** Try header-based admin (for server-to-server or fallback when cookies missing). */
+async function tryHeaderAdmin() {
+  const headerStore = await headers();
+  const authz = headerStore.get("authorization") || headerStore.get("Authorization") || undefined;
+  if (!authz) return false;
+  try {
+    await assertAdmin(authz);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function assertAdminCookie() {
+  // Shortcut: allow header-based admin if provided
+  if (await tryHeaderAdmin()) {
+    return { ok: true as const };
+  }
+
   const supabase = await getSupabaseServer();
 
   // 1) Must have a logged-in user
