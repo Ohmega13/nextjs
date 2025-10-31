@@ -158,7 +158,10 @@ export async function GET(req: Request) {
       ]);
 
       const balance = await resolveBalance(userId);
-      return NextResponse.json({ ok: true, item: { user_id: userId, profile, account, balance } });
+      return NextResponse.json({
+        user_id: userId,
+        carry_balance: balance,
+      });
     }
 
     const { data, error } = await svc
