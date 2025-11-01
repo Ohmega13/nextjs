@@ -19,7 +19,7 @@ function getTargetUserIdFromReq(req: Request, fallback?: string | null) {
 
 // Create a Supabase client with cookie + headers
 async function getSupabase(req: Request) {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const headerStore = req.headers;
 
   const mergedHeaders: Record<string, string> = {};
