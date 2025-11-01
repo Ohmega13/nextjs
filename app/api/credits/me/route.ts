@@ -79,7 +79,7 @@ export async function GET() {
     let fallbackBalance = 0;
     if (rpcErr || typeof rpcBalance !== "number") {
       const { data: acct, error: acctErr } = await supabase
-        .from("accounts")
+        .from("credit_accounts")
         .select("carry_balance, balance")
         .eq("user_id", user.id)
         .maybeSingle();
