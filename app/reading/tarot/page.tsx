@@ -269,15 +269,12 @@ export default function TarotReadingPage() {
     const featureKey = FEATURE_KEY_BY_MODE[modeStr];
     const bucketsToTry = buildBuckets(modeStr);
 
-    let available = typeof credits === 'number' ? credits : null;
-    if (available === null) {
-      available = await checkCreditBeforeOpen();
-      // sync state เผื่อที่หัวโชว์เป็น '—'
-      if (typeof available === 'number') setCredits(available);
+    // ดึงเครดิตล่าสุดจากเซิร์ฟเวอร์ทุกครั้ง (อย่าพึ่งพา state ภายในรอบนี้)
+    const available = await checkCreditBeforeOpen();
+    if (typeof available === 'number') {
+      // ซิงก์ state ไว้ให้ UI หัวเพจอัปเดต
+      setCredits(available);
     }
-    // sync อีกครั้งกันกรณีหัวเว็บกับเพจไม่ตรง
-    await loadCredits(clientId ?? undefined);
-    available = typeof credits === 'number' ? credits : available;
     if ((available ?? 0) < cost) {
       alert('เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ');
       setShowConfirm(false);
@@ -325,6 +322,8 @@ export default function TarotReadingPage() {
         hdrs.set('x-ddt-targetUser', clientId);
         hdrs.set('x-ddt-target-client', clientId);   // some APIs use client id
         hdrs.set('X-DDT-Target-Client', clientId);
+        hdrs.set('x-ddt-targetuser', clientId);        // อีกเวอร์ชันตัวพิมพ์เล็กติดกัน (บาง proxy ใช้อันนี้)
+        hdrs.set('x-ddt-target-user-id', clientId);    // เผื่อ API คาดชื่อนี้
       }
       hdrs.set('x-ddt-feature-key', featureKey);
       hdrs.set('X-DDT-Feature-Key', featureKey);
@@ -344,6 +343,16 @@ export default function TarotReadingPage() {
         cache: 'no-store',
         credentials: 'include',
       });
+      // Fallback: บางโฮส/Proxy อาจตัด header ผู้ใช้เป้าหมายทิ้ง ลองส่งผ่าน query แทน
+      if (!res.ok && role === 'admin' && clientId) {
+        res = await fetch(`/api/tarot?user_id=${encodeURIComponent(clientId)}`, {
+          method: 'POST',
+          headers: hdrs,
+          body: JSON.stringify(apiPayload),
+          cache: 'no-store',
+          credentials: 'include',
+        });
+      }
     } catch (e) {
       setIsDrawing(false);
       setShowConfirm(false);

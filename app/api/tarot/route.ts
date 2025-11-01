@@ -34,18 +34,26 @@ async function tryDeductViaBalanceView(opts: {
     ? bucketsToTry
     : [bucket];
 
-  // Helper to coerce row balance
-  const numVal = (row: any) =>
-    Number(
-      row?.balance ??
-      row?.carry_balance ??
-      row?.credit ??
-      row?.credits ??
-      row?.amount ??
-      row?.remaining ??
-      row?.remaining_total ??
-      0
-    );
+  // Helper to safely calculate remaining credits, never using amount as a standalone balance.
+  const numVal = (row: any) => {
+    // Prefer explicit remaining columns; otherwise derive from components.
+    const rt = row?.remaining_total;
+    if (rt !== undefined && rt !== null && Number.isFinite(Number(rt))) {
+      return Math.max(0, Number(rt));
+    }
+    const r = row?.remaining;
+    if (r !== undefined && r !== null && Number.isFinite(Number(r))) {
+      return Math.max(0, Number(r));
+    }
+    const balance = Number(row?.balance ?? 0);
+    const carry   = Number(row?.carry_balance ?? 0);
+    const credit  = Number(row?.credit ?? 0);
+    const credits = Number(row?.credits ?? 0);
+    const amount  = Number(row?.amount ?? 0);
+    // amount is usually a debit/spent; subtract it from positives
+    const derived = balance + carry + credit + credits - amount;
+    return Number.isFinite(derived) ? Math.max(0, derived) : 0;
+  };
 
   // Possible user-id columns on the VIEW
   const uidCols = ["user_id", "owner_id", "subject_user_id", "subject_id", "uid"] as const;
@@ -647,16 +655,23 @@ export async function POST(req: NextRequest) {
     const bucketToParam = (b: NullableBucket) =>
       b === null || b === "any" || b === "*" ? null : b;
 
-    const numVal = (row: any) =>
-      Number(
-        row?.balance ??
-        row?.carry_balance ??
-        row?.credit ??
-        row?.credits ??
-        row?.amount ??
-        row?.remaining ??
-        0
-      );
+    const numVal = (row: any) => {
+      const rt = row?.remaining_total;
+      if (rt !== undefined && rt !== null && Number.isFinite(Number(rt))) {
+        return Math.max(0, Number(rt));
+      }
+      const r = row?.remaining;
+      if (r !== undefined && r !== null && Number.isFinite(Number(r))) {
+        return Math.max(0, Number(r));
+      }
+      const balance = Number(row?.balance ?? 0);
+      const carry   = Number(row?.carry_balance ?? 0);
+      const credit  = Number(row?.credit ?? 0);
+      const credits = Number(row?.credits ?? 0);
+      const amount  = Number(row?.amount ?? 0);
+      const derived = balance + carry + credit + credits - amount;
+      return Number.isFinite(derived) ? Math.max(0, derived) : 0;
+    };
 
     const getRowFeature = (row: any): string | null =>
       (row?.feature_key ?? row?.feature ?? null);
