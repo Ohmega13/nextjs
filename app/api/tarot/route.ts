@@ -19,8 +19,8 @@ const USAGE_TABLE  = process.env.NEXT_PUBLIC_CREDITS_USAGE_TABLE  || "credits_us
  * Robust to schema differences (missing bucket, various user id columns).
  */
 async function tryDeductViaBalanceView(opts: {
-  reader: SupabaseClient;
-  writer: SupabaseClient;      // kept for compatibility (not used in check-only)
+  reader: any;
+  writer: any;      // kept for compatibility (not used in check-only)
   targetUserId: string;
   bucket: string;
   featureKey: string;
@@ -63,9 +63,9 @@ async function tryDeductViaBalanceView(opts: {
     // 1) With bucket + user_id
     for (const uidCol of uidCols) {
       try {
-        const res = await reader
+        const res = await (reader as any)
           .from(BALANCE_VIEW)
-          .select(`bucket,balance,carry_balance,credit,credits,amount,remaining,remaining_total,${uidCol}`)
+          .select(`bucket,balance,carry_balance,credit,credits,amount,remaining,remaining_total,${uidCol}` as any)
           .eq(uidCol as any, targetUserId as any)
           .in("bucket", wantedBuckets as any);
         if (!res.error) return { data: res.data ?? [] };
@@ -77,9 +77,9 @@ async function tryDeductViaBalanceView(opts: {
     // 2) Without bucket filter (in case `bucket` column doesn't exist)
     for (const uidCol of uidCols) {
       try {
-        const res = await reader
+        const res = await (reader as any)
           .from(BALANCE_VIEW)
-          .select(`balance,carry_balance,credit,credits,amount,remaining,remaining_total,${uidCol}`)
+          .select(`balance,carry_balance,credit,credits,amount,remaining,remaining_total,${uidCol}` as any)
           .eq(uidCol as any, targetUserId as any);
         if (!res.error) return { data: res.data ?? [] };
         if (res.error?.code !== "42703") continue;
@@ -88,9 +88,9 @@ async function tryDeductViaBalanceView(opts: {
 
     // 3) Last resort: fetch all rows and filter in memory by whatever uid column exists
     try {
-      const res = await reader
+      const res = await (reader as any)
         .from(BALANCE_VIEW)
-        .select("bucket,balance,carry_balance,credit,credits,amount,remaining,remaining_total,user_id,owner_id,subject_user_id,subject_id,uid");
+        .select("bucket,balance,carry_balance,credit,credits,amount,remaining,remaining_total,user_id,owner_id,subject_user_id,subject_id,uid" as any);
       if (!res.error && res.data) {
         const rows = (res.data as any[]).filter(r =>
           uidCols.some(c => (r as any)[c] === targetUserId)
@@ -105,7 +105,7 @@ async function tryDeductViaBalanceView(opts: {
 
   // If the view itself doesn't exist
   try {
-    const probe = await reader.from(BALANCE_VIEW).select("count").limit(1);
+    const probe = await (reader as any).from(BALANCE_VIEW).select("count").limit(1);
     if (probe?.error?.code === "42P01") {
       return { ok: false, reason: "view_not_found", mode: "view_not_found" };
     }

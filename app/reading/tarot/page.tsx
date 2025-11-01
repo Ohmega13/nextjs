@@ -657,8 +657,21 @@ export default function TarotReadingPage() {
             className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50"
             disabled={!canSubmit()}
             onClick={async () => {
-              // พยายาม sync เครดิตก่อนเปิด modal
-              await loadCredits(clientId ?? undefined);
+              // ตรวจเครดิตล่วงหน้าก่อนเปิด modal เพื่อลดโอกาสโดน 402 จากฝั่งเซิร์ฟเวอร์
+              const cost =
+                readingType === '3cards' ? TAROT_COST.threeCards :
+                readingType === 'weigh'   ? TAROT_COST.weighOptions :
+                                            TAROT_COST.classic10;
+
+              const available = await checkCreditBeforeOpen();
+              if (typeof available === 'number') setCredits(available);
+
+              if ((available ?? 0) < cost) {
+                alert('เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ');
+                return;
+              }
+
+              // ผ่านเงื่อนไข → เปิด modal ต่อได้
               setShowConfirm(true);
             }}
           >
