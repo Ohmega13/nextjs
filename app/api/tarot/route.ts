@@ -446,7 +446,9 @@ export async function POST(req: NextRequest) {
     if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
       return NextResponse.json({ ok: false, error: "INVALID_MODE" }, { status: 400 });
     }
-    let featureKey = "";
+
+    // กำหนด feature และค่าใช้จ่าย
+    let featureKey: "tarot_threeCards" | "tarot_weighOptions" | "tarot_classic10";
     let cost = 1;
     if (mode === "threeCards") {
       featureKey = "tarot_threeCards";
@@ -454,46 +456,44 @@ export async function POST(req: NextRequest) {
     } else if (mode === "weighOptions") {
       featureKey = "tarot_weighOptions";
       cost = 1;
-    } else if (mode === "classic10") {
+    } else {
       featureKey = "tarot_classic10";
       cost = 5;
     }
-    // เรียก RPC ที่ Supabase
-    const { data: creditResult, error: creditError } = await creditClient.rpc("sp_use_credit", {
-      p_user_id: targetUserId,
-      p_feature: featureKey,
-      p_cost: cost,
-      p_reading: null,
-    });
-    if (creditError || !creditResult) {
-      // ตรวจซ้ำ: ถ้า RPC ล้มเหลว ให้เช็คยอดเครดิตตรง ๆ แล้วลองตัดเครดิตแบบ fallback
-      const { data: creditRow, error: balErr } = await creditClient
+
+    // ----- Multi-bucket credit deduction -----
+    // พยายามตัดจาก bucket ตามลำดับ: feature เฉพาะ -> 'tarot' -> 'general'
+    type BucketKey = typeof featureKey | "tarot" | "general";
+    const bucketsToTry: BucketKey[] = [featureKey, "tarot", "general"];
+    let paidFrom: BucketKey | null = null;
+    let lastBalanceSeen: number | null = null;
+
+    // helper: อ่านยอดจากตาราง credits (fallback)
+    const readGenericBalance = async () => {
+      const { data: creditRow } = await creditClient
         .from("credits")
         .select("balance, carry_balance, credit")
         .eq("user_id", targetUserId)
         .maybeSingle();
-      const currentBalance = Number(
+      const val = Number(
         creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
       );
-      // ถ้ายอดน้อยกว่าค่าใช้จ่ายจริง ค่อยตอบ 402
-      if (!Number.isFinite(currentBalance) || currentBalance < cost) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
-            debug: {
-              targetRaw,
-              targetUserId,
-              mappedFromClient,
-              currentBalance,
-              cost,
-              featureKey
-            }
-          },
-          { status: 402 }
-        );
-      }
-      // มีเครดิตพอ → พยายามตัดเครดิตด้วยการอัปเดตตารางโดยตรง (กันกรณี RPC พัง)
+      return Number.isFinite(val) ? val : 0;
+    };
+
+    // helper: อัปเดตยอด generic เมื่อ RPC ใช้ไม่ได้
+    const deductGeneric = async (amount: number) => {
+      const { data: creditRow } = await creditClient
+        .from("credits")
+        .select("balance, carry_balance, credit")
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+      const current = Number(
+        creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
+      );
+      lastBalanceSeen = current;
+      if (!Number.isFinite(current) || current < amount) return false;
+
       const preferCols = ["balance", "credit", "carry_balance"];
       let chosenCol: string | null = null;
       for (const c of preferCols) {
@@ -502,49 +502,62 @@ export async function POST(req: NextRequest) {
           break;
         }
       }
-      if (chosenCol) {
-        const newVal = Math.max(0, currentBalance - cost);
-        const { error: updErr } = await creditClient
-          .from("credits")
-          .update({ [chosenCol]: newVal })
-          .eq("user_id", targetUserId);
-        if (updErr) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: "CREDIT_RPC_FAILED",
-              details: creditError?.message ?? updErr?.message ?? null,
-              debug: {
-                targetUserId,
-                featureKey,
-                cost,
-                currentBalance,
-                chosenCol,
-                balErr: balErr?.message ?? null
-              }
-            },
-            { status: 500 }
-          );
-        }
-        // อัปเดตสำเร็จ → ดำเนินต่อไปเหมือนหักเครดิตผ่าน RPC ได้
-      } else {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "CREDIT_RPC_FAILED",
-            details: creditError?.message ?? null,
-            debug: {
-              targetUserId,
-              featureKey,
-              cost,
-              currentBalance,
-              chosenCol,
-              balErr: balErr?.message ?? null
-            }
-          },
-          { status: 500 }
-        );
+      if (!chosenCol) return false;
+
+      const newVal = Math.max(0, current - amount);
+      const { error: updErr } = await creditClient
+        .from("credits")
+        .update({ [chosenCol]: newVal })
+        .eq("user_id", targetUserId);
+      return !updErr;
+    };
+
+    // ลองตัดเครดิตด้วย RPC ทีละ bucket
+    for (const bucket of bucketsToTry) {
+      const { data: rpcOk, error: rpcErr } = await creditClient.rpc("sp_use_credit", {
+        p_user_id: targetUserId,
+        p_feature: bucket,
+        p_cost: cost,
+        p_reading: null,
+      });
+
+      if (!rpcErr && rpcOk) {
+        paidFrom = bucket;
+        break;
       }
+
+      // ถ้า RPC ล้มเหลว ให้ลองวิธี generic เฉพาะกรณี bucket เป็น 'tarot' หรือ 'general'
+      if (bucket === "tarot" || bucket === "general") {
+        const ok = await deductGeneric(cost);
+        if (ok) {
+          paidFrom = bucket;
+          break;
+        }
+      }
+    }
+
+    // ยังตัดไม่ได้ => ตรวจยอดล่าสุดแล้วตอบ 402
+    if (!paidFrom) {
+      // พยายามอ่านยอดเพื่อใส่ debug
+      if (lastBalanceSeen === null) {
+        lastBalanceSeen = await readGenericBalance();
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
+          debug: {
+            targetRaw,
+            targetUserId,
+            mappedFromClient,
+            currentBalance: lastBalanceSeen ?? 0,
+            cost,
+            featureKey,
+            triedBuckets: bucketsToTry
+          }
+        },
+        { status: 402 }
+      );
     }
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
