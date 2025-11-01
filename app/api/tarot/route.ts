@@ -1,7 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { SupabaseClient } from "@supabase/supabase-js";
+import { SupabaseClient, createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
 import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 
@@ -11,6 +11,51 @@ const DEBUG_TAG = "[api/tarot]";
 // balance view + usage ledger (allow override by ENV)
 const BALANCE_VIEW = process.env.NEXT_PUBLIC_CREDITS_BALANCE_VIEW || "credits_balance_view";
 const USAGE_TABLE  = process.env.NEXT_PUBLIC_CREDITS_USAGE_TABLE  || "credits_usage";
+
+/**
+ * Try to deduct credit using balance VIEW + USAGE ledger (source of truth same as UI).
+ * Returns ok + remaining if success, or ok:false with reason if not.
+ */
+async function tryDeductViaBalanceView(opts: {
+  reader: SupabaseClient;      // supabase or service-role client for SELECT
+  writer: SupabaseClient;      // supabase or service-role client for INSERT (usage)
+  targetUserId: string;
+  bucket: string;              // "tarot", "palm", etc.
+  featureKey: string;
+  cost: number;
+  createdBy: string;           // who triggers spend
+}): Promise<{ ok: boolean; remaining?: number; reason?: string }> {
+  const { reader, writer, targetUserId, bucket, featureKey, cost, createdBy } = opts;
+  // 1) read balance from view
+  const sel = await reader
+    .from(BALANCE_VIEW)
+    .select("balance")
+    .eq("user_id", targetUserId)
+    .eq("bucket", bucket)
+    .maybeSingle();
+
+  // Relation not found -> skip silently to allow table-based fallback by caller
+  if (sel?.error?.code === "42P01") return { ok: false, reason: "view_not_found" };
+
+  if (sel.error) return { ok: false, reason: sel.error.message };
+  const current = Number(sel.data?.balance ?? 0);
+  if (!Number.isFinite(current) || current < cost) {
+    return { ok: false, reason: "insufficient_view_balance" };
+  }
+
+  // 2) insert a usage row (ledger-style)
+  const ins = await writer.from(USAGE_TABLE).insert({
+    user_id: targetUserId,
+    bucket,
+    feature_key: featureKey,
+    delta: -cost,
+    reason: "tarot_usage",
+    created_by: createdBy,
+  });
+
+  if (ins.error) return { ok: false, reason: ins.error.message };
+  return { ok: true, remaining: current - cost };
+}
 const getOpenAIKey = () =>
   process.env.OPENAI_API_KEY ||
   (process.env as any).OPENAI_APIKEY ||
@@ -372,9 +417,10 @@ export async function POST(req: NextRequest) {
 
     // Service-role client (RLS bypass) used for id-mapping and credit ops when available
     const serviceClient = process.env.SUPABASE_SERVICE_ROLE_KEY
-      ? new SupabaseClient(
+      ? createSupabaseServiceClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { auth: { persistSession: false } }
         )
       : null;
     __debug.serviceRole = !!serviceClient;
@@ -496,7 +542,7 @@ export async function POST(req: NextRequest) {
     const writerClient = (isAdmin && targetUserId !== user.id && !!serviceClient) ? serviceClient : supabase;
 
     const viaView = await tryDeductViaBalanceView({
-      reader: (serviceClient ?? supabase),
+      reader: serviceClient ?? supabase,
       writer: writerClient,
       targetUserId,
       bucket: primaryBucket,
@@ -540,48 +586,6 @@ export async function POST(req: NextRequest) {
 
     const getRowFeature = (row: any): string | null =>
       (row?.feature_key ?? row?.feature ?? null);
-
-    // Try deduct using balance VIEW + USAGE ledger (preferred: same source as UI)
-    async function tryDeductViaBalanceView(opts: {
-      reader: any;           // supabase or service-role client for SELECT
-      writer: any;           // supabase or service-role client for INSERT (usage)
-      targetUserId: string;
-      bucket: string;        // "tarot", "palm", etc.
-      featureKey: string;
-      cost: number;
-      createdBy: string;     // who triggers spend
-    }): Promise<{ ok: boolean; remaining?: number; reason?: string }> {
-      const { reader, writer, targetUserId, bucket, featureKey, cost, createdBy } = opts;
-      // 1) read balance from view
-      const sel = await reader
-        .from(BALANCE_VIEW)
-        .select("balance")
-        .eq("user_id", targetUserId)
-        .eq("bucket", bucket)
-        .maybeSingle();
-
-      // Relation not found -> skip silently to allow table-based fallback
-      if (sel?.error?.code === "42P01") return { ok: false, reason: "view_not_found" };
-
-      if (sel.error) return { ok: false, reason: sel.error.message };
-      const current = Number(sel.data?.balance ?? 0);
-      if (!Number.isFinite(current) || current < opts.cost) {
-        return { ok: false, reason: "insufficient_view_balance" };
-      }
-
-      // 2) insert a usage row (ledger-style)
-      const ins = await writer.from(USAGE_TABLE).insert({
-        user_id: targetUserId,
-        bucket,
-        feature_key: featureKey,
-        delta: -cost,
-        reason: "tarot_usage",
-        created_by: createdBy,
-      });
-
-      if (ins.error) return { ok: false, reason: ins.error.message };
-      return { ok: true, remaining: current - cost };
-    }
 
     let paidFrom: NullableBucket = null;
     let lastBalanceSeen: number | null = null;
@@ -696,7 +700,7 @@ export async function POST(req: NextRequest) {
         // try deduct from the richest row
         const upd2 = creditClient
           .from("credits")
-          .update({ 
+          .update({
             [ ("balance" in richest) ? "balance"
               : ("credit" in richest) ? "credit"
               : ("credits" in richest) ? "credits"
