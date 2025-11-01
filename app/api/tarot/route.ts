@@ -131,6 +131,48 @@ async function tryDeductViaBalanceView(opts: {
 
   return { ok: true, remaining: total - cost, mode: "check_only" };
 }
+
+/**
+ * Fallback deduction using credit_accounts.carry_balance
+ * Works with either anon (same user) or service-role (admin on behalf).
+ */
+async function tryDeductFromCreditAccounts(opts: {
+  reader: any;
+  writer: any;
+  targetUserId: string;
+  cost: number;
+}) {
+  const { reader, writer, targetUserId, cost } = opts;
+
+  // 1) Read current carry_balance
+  const sel = await reader
+    .from("credit_accounts")
+    .select("carry_balance")
+    .eq("user_id", targetUserId)
+    .maybeSingle();
+
+  if (sel.error) {
+    return { ok: false as const, reason: "read_error", detail: sel.error.message };
+  }
+
+  const current = Number(sel.data?.carry_balance ?? 0);
+  if (!Number.isFinite(current) || current < cost) {
+    return { ok: false as const, reason: "insufficient", balance: current };
+  }
+
+  // 2) Deduct and update
+  const newBalance = Math.max(0, current - cost);
+  const upd = await writer
+    .from("credit_accounts")
+    .update({ carry_balance: newBalance, updated_at: new Date().toISOString() })
+    .eq("user_id", targetUserId);
+
+  if (upd.error) {
+    return { ok: false as const, reason: "update_error", detail: upd.error.message };
+  }
+
+  return { ok: true as const, balance: newBalance };
+}
 const getOpenAIKey = () =>
   process.env.OPENAI_API_KEY ||
   (process.env as any).OPENAI_APIKEY ||
@@ -637,198 +679,36 @@ export async function POST(req: NextRequest) {
       : "table";
 
     if (!viaView.ok) {
-    type NullableBucket = string | null;
-
-    const buildPriority = (fk: string): NullableBucket[] => {
-      const family = fk.split("_")[0];
-      const arr = [fk, family, "tarot", "any", "*", null] as NullableBucket[];
-      // de-duplicate while preserving order
-      const seen = new Set<string>();
-      return arr.filter((v) => {
-        const key = v === null ? "__NULL__" : String(v);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    };
-
-    const bucketToParam = (b: NullableBucket) =>
-      b === null || b === "any" || b === "*" ? null : b;
-
-    const numVal = (row: any) => {
-      const rt = row?.remaining_total;
-      if (rt !== undefined && rt !== null && Number.isFinite(Number(rt))) {
-        return Math.max(0, Number(rt));
-      }
-      const r = row?.remaining;
-      if (r !== undefined && r !== null && Number.isFinite(Number(r))) {
-        return Math.max(0, Number(r));
-      }
-      const balance = Number(row?.balance ?? 0);
-      const carry   = Number(row?.carry_balance ?? 0);
-      const credit  = Number(row?.credit ?? 0);
-      const credits = Number(row?.credits ?? 0);
-      const amount  = Number(row?.amount ?? 0);
-      const derived = balance + carry + credit + credits - amount;
-      return Number.isFinite(derived) ? Math.max(0, derived) : 0;
-    };
-
-    const getRowFeature = (row: any): string | null =>
-      (row?.feature_key ?? row?.feature ?? null);
-
-    let paidFrom: NullableBucket = null;
-    let lastBalanceSeen: number | null = null;
-    let creditWhere:
-      | { kind: "user_id" | "client_id" | "email"; value: string }
-      | null = null;
-
-    // 1) Read all credit rows for the target by user_id -> client_id -> email
-    let rows: any[] = [];
-    {
-      const byUser = await creditClient
-        .from("credits")
-        .select("feature_key,feature,balance,carry_balance,credit,credits,amount,remaining")
-        .eq("user_id", targetUserId);
-      if (!byUser.error && byUser.data && byUser.data.length) {
-        rows = byUser.data;
-        creditWhere = { kind: "user_id", value: targetUserId };
-      } else if (creditClientId) {
-        const byClient = await creditClient
-          .from("credits")
-          .select("feature_key,feature,balance,carry_balance,credit,credits,amount,remaining")
-          .eq("client_id", creditClientId);
-        if (!byClient.error && byClient.data && byClient.data.length) {
-          rows = byClient.data;
-          creditWhere = { kind: "client_id", value: creditClientId };
-        }
-      }
-      if (rows.length === 0 && creditEmail) {
-        const byEmail = await creditClient
-          .from("credits")
-          .select("feature_key,feature,balance,carry_balance,credit,credits,amount,remaining")
-          .eq("email", creditEmail);
-        if (!byEmail.error && byEmail.data && byEmail.data.length) {
-          rows = byEmail.data;
-          creditWhere = { kind: "email", value: creditEmail };
-        }
-      }
-    }
-
-    // 2) Choose the first bucket with enough balance
-    const priority = buildPriority(featureKey);
-    const pick: NullableBucket =
-      priority.find((b) => {
-        const matchKey = (fk: any) => (b === null ? fk == null : fk === b);
-        const row = rows.find((r) => matchKey(getRowFeature(r)));
-        return row && numVal(row) >= cost;
-      }) ?? null;
-
-    if (pick !== null) {
-      // 3) Try RPC first (translate "any/*/null" into NULL)
-      const rpcBucket = bucketToParam(pick);
-      const { data: ok, error: rpcErr } = await creditClient.rpc("sp_use_credit", {
-        p_user_id: targetUserId,
-        p_feature: rpcBucket,
-        p_cost: cost,
-        p_reading: null,
+      // Fallback path: use credit_accounts.carry_balance
+      const acct = await tryDeductFromCreditAccounts({
+        reader: creditClient,
+        writer: writerClient,
+        targetUserId,
+        cost,
       });
 
-      if (!rpcErr && ok) {
-        paidFrom = pick;
-      } else {
-        // 4) Manual update on the specific row we picked
-        const { data: found } = await creditClient
-          .from("credits")
-          .select("id,balance,carry_balance,credit,credits,amount,remaining,feature_key,feature")
-          .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId)
-          // match by either column name
-          [pick === null ? "is" : "eq"]("feature_key", pick === null ? null : pick)
-          .or(pick === null ? "feature.is.null" : `feature.eq.${pick}`)
-          .maybeSingle();
-
-        const current = numVal(found);
-        lastBalanceSeen = current;
-
-        if (Number.isFinite(current) && current >= cost) {
-          const newVal = Math.max(0, current - cost);
-          const targetCol =
-            "balance" in (found ?? {}) ? "balance"
-            : "credit" in (found ?? {}) ? "credit"
-            : "credits" in (found ?? {}) ? "credits"
-            : "amount" in (found ?? {}) ? "amount"
-            : "remaining" in (found ?? {}) ? "remaining"
-            : "carry_balance";
-          const upd = creditClient
-            .from("credits")
-            .update({ [targetCol]: newVal })
-            .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId);
-          (pick === null ? (upd as any).is("feature_key", null) : upd.eq("feature_key", pick));
-          const { error: updErr } = await upd;
-          if (!updErr) paidFrom = pick;
-        }
-      }
-    } else {
-      // Could not find any bucket with sufficient balance; remember the latest seen
-      const { data: r } = await creditClient
-        .from("credits")
-        .select("balance,carry_balance,credit")
-        .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId)
-        .maybeSingle();
-      lastBalanceSeen = numVal(r);
-    }
-
-    if (!paidFrom) {
-      // Soft fallback: if total balance across rows is enough, pick the max-balance row
-      const total = rows.reduce((s, r) => s + (Number.isFinite(numVal(r)) ? numVal(r) : 0), 0);
-      if (total >= cost && rows.length > 0) {
-        const richest = rows.reduce((a, b) => (numVal(a) >= numVal(b) ? a : b));
-        const richestKey = getRowFeature(richest);
-        const richestVal = numVal(richest);
-        lastBalanceSeen = richestVal;
-
-        // try deduct from the richest row
-        const upd2 = creditClient
-          .from("credits")
-          .update({
-            [ ("balance" in richest) ? "balance"
-              : ("credit" in richest) ? "credit"
-              : ("credits" in richest) ? "credits"
-              : ("amount" in richest) ? "amount"
-              : ("remaining" in richest) ? "remaining"
-              : "carry_balance"
-            ]: Math.max(0, richestVal - cost)
-          })
-          .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId);
-
-        richestKey === null ? (upd2 as any).is("feature_key", null) : upd2.eq("feature_key", richestKey);
-        const { error: upd2Err } = await upd2;
-        if (!upd2Err) {
-          paidFrom = richestKey ?? null;
-        }
-      }
-
-      if (!paidFrom) {
+      if (!acct.ok) {
         return NextResponse.json(
           {
             ok: false,
             error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
             debug: {
+              reason: acct.reason,
+              balance: (acct as any).balance ?? null,
+              detail: (acct as any).detail ?? null,
               targetUserId,
               featureKey,
               cost,
-              triedPriority: priority,
-              rows,
-              total,
-              lastBalanceSeen,
-              creditWhere,
-              bucketsToTry, // append to debug
+              bucketsToTry,
+              viaViewReason: viaView.reason ?? null,
             },
           },
           { status: 402 }
         );
       }
+
+      spentVia = "table";
     }
-    } // <-- end if (!viaView.ok)
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
