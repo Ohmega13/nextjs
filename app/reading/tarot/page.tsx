@@ -139,7 +139,22 @@ export default function TarotReadingPage() {
           credentials: 'include',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-        if (!res.ok) { setCredits(0); return; }
+        // หากปลายทางปฏิเสธจากการ strip query (บาง proxy) ให้ลองส่ง header แทน
+        if (!res.ok) {
+          const res2 = await fetch('/api/admin/credits', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+            headers: token
+              ? { Authorization: `Bearer ${token}`, 'x-ddt-target-user': uid, 'X-DDT-Target-User': uid }
+              : { 'x-ddt-target-user': uid, 'X-DDT-Target-User': uid },
+          });
+          if (!res2.ok) { setCredits(0); return; }
+          const j2: any = await res2.json();
+          const v2 = Number(j2.balance ?? j2.carry_balance ?? j2.credit ?? j2?.credits?.balance ?? 0);
+          setCredits(Number.isFinite(v2) ? v2 : 0);
+          return;
+        }
         const j: any = await res.json();
         const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
         setCredits(Number.isFinite(v) ? v : 0);
@@ -182,7 +197,20 @@ export default function TarotReadingPage() {
           credentials: 'include',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-        if (!r.ok) return 0;
+        if (!r.ok) {
+          const r2 = await fetch('/api/admin/credits', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+            headers: token
+              ? { Authorization: `Bearer ${token}`, 'x-ddt-target-user': clientId, 'X-DDT-Target-User': clientId }
+              : { 'x-ddt-target-user': clientId, 'X-DDT-Target-User': clientId },
+          });
+          if (!r2.ok) return 0;
+          const j2: any = await r2.json();
+          const v2 = Number(j2.balance ?? j2.carry_balance ?? j2.credit ?? j2?.credits?.balance ?? 0);
+          return Number.isFinite(v2) ? v2 : 0;
+        }
         const j: any = await r.json();
         const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
         return Number.isFinite(v) ? v : 0;
@@ -229,6 +257,12 @@ export default function TarotReadingPage() {
     } else {
       apiPayload = { mode: 'classic10' };
     }
+    // ✅ ถ้าเป็นแอดมินและเลือกลูกดวงอยู่ ให้ส่ง user_id ไปใน payload ด้วย
+    // เพื่อเป็น fallback กรณี header ถูกตัดทิ้งระหว่างทาง (เช่นผ่าน proxy)
+    if (role === 'admin' && clientId) {
+      apiPayload.user_id = clientId;
+      apiPayload.targetUserId = clientId; // เผื่อฝั่ง API รองรับชื่อคีย์นี้
+    }
 
     // Build headers for tarot API: always send credentials and (if admin) the target user
     const hdrs = new Headers({ 'Content-Type': 'application/json' });
@@ -239,9 +273,9 @@ export default function TarotReadingPage() {
         hdrs.set('Authorization', `Bearer ${token}`);
       }
       if (role === 'admin' && clientId) {
-        // ส่งทั้งสองรูปแบบของ header เพื่อกันเคส framework ปรับตัวพิมพ์
         hdrs.set('x-ddt-target-user', clientId);
         hdrs.set('X-DDT-Target-User', clientId);
+        hdrs.set('x-ddt-targetUser', clientId);
       }
     } catch {}
 
@@ -330,7 +364,7 @@ export default function TarotReadingPage() {
     ]);
 
     // รีเฟรชยอดเครดิตในเพจนี้ด้วย
-    loadCredits().catch(() => {});
+    loadCredits(clientId ?? undefined).catch(() => {});
     // รีเฟรชยอดเครดิตบนหัวเว็บ (ถ้ามี listener ฝั่ง TopNav)
     try {
       await fetch('/api/credits/me', { method: 'GET', cache: 'no-store' });
