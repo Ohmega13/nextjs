@@ -195,11 +195,68 @@ function AdminEditableWhatsNew() {
 // ============================================================
 
 export default function ReadingHome() {
+  const [credits, setCredits] = useState<number | null>(null);
+  const [loadingCredits, setLoadingCredits] = useState<boolean>(false);
+
+  async function loadCredits(signal?: AbortSignal) {
+    try {
+      setLoadingCredits(true);
+      const res = await fetch(`/api/credits/me?ts=${Date.now()}`, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+        },
+        signal,
+      });
+      if (!res.ok) {
+        setCredits(null);
+        return;
+      }
+      const j = await res.json();
+      const next =
+        (typeof j.balance === "number" ? j.balance : null) ??
+        (typeof j.remaining_total === "number" ? j.remaining_total : null) ??
+        0;
+      setCredits(next);
+    } catch {
+      setCredits(null);
+    } finally {
+      setLoadingCredits(false);
+    }
+  }
+
+  useEffect(() => {
+    const ac = new AbortController();
+    loadCredits(ac.signal);
+    return () => ac.abort();
+  }, []);
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">เลือกประเภทการดูดวง</h1>
-        <p className="text-slate-500">เลือกแบบที่ต้องการ แล้วเริ่มดูดวงได้เลย</p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">เลือกประเภทการดูดวง</h1>
+          <p className="text-slate-500">เลือกแบบที่ต้องการ แล้วเริ่มดูดวงได้เลย</p>
+        </div>
+
+        <div className="shrink-0 rounded-xl border bg-white px-3 py-2 text-sm shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-slate-600">เครดิตคงเหลือ</span>
+            <strong className="tabular-nums">
+              {credits === null ? "—" : credits}
+            </strong>
+            <button
+              onClick={() => loadCredits()}
+              className="rounded border px-2 py-1 hover:bg-slate-50 disabled:opacity-50"
+              disabled={loadingCredits}
+              title="รีเฟรชเครดิต"
+            >
+              {loadingCredits ? "กำลังรีเฟรช…" : "รีเฟรช"}
+            </button>
+          </div>
+        </div>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -1175,16 +1175,41 @@ export async function POST(req: NextRequest) {
       fallbackUsed: __debug.openaiFallbackUsed === true,
     });
     __debug.promptPreview = (prompt || '').slice(0, 160);
-    return NextResponse.json(
-      {
+    // --- compute latest remaining after deduction (authoritative) ---
+    let remainingNow: number | null = null;
+    // prefer balances returned from deduction helpers
+    if (creditDebug?.ok && typeof creditDebug.newBalance === "number") {
+      remainingNow = Number(creditDebug.newBalance);
+    } else if (creditDebug && typeof creditDebug.balance === "number") {
+      remainingNow = Number(creditDebug.balance);
+    } else {
+      // final fallback: read from credit_accounts
+      try {
+        const rNow = await (serviceClient ?? supabase)
+          .from("credit_accounts")
+          .select("carry_balance")
+          .eq("user_id", targetUserId)
+          .maybeSingle();
+        if (!rNow.error) {
+          remainingNow = Number(rNow.data?.carry_balance ?? 0);
+        }
+      } catch {}
+    }
+
+    return new NextResponse(
+      JSON.stringify({
         ok: true,
         reading: data,
         content: contentText,
         analysis: contentText,
-        // Always include minimal debug to diagnose client-side quickly
+        // expose remaining to the client so it can update UI immediately
+        balance: typeof remainingNow === "number" ? remainingNow : undefined,
+        remaining_total: typeof remainingNow === "number" ? remainingNow : undefined,
+        // minimal debug for quick diagnosis (safe to keep in prod)
         debug: {
           hasUser: __debug.hasUser,
           isAdmin: __debug.isAdmin,
+          targetUserId: __debug.targetUserId,
           promptLen: __debug.promptLen,
           analysisLen: __debug.analysisLen,
           promptPreview: __debug.promptPreview,
@@ -1195,8 +1220,14 @@ export async function POST(req: NextRequest) {
           creditDebug,
           legacyAdjust,
         },
-      },
-      { status: 200 }
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
     );
   } catch (e: any) {
     logError("Unhandled error", e);

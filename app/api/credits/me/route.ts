@@ -6,28 +6,21 @@ import { createServerClient } from "@supabase/ssr";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Extract target user id (for admin cases) — must await headers() in this runtime
-async function getTargetUserId(): Promise<string | null> {
-  const h = await headers();
-  const raw = h.get("x-url") || "http://localhost";
-  let qp: string | null = null;
-  try {
-    const url = new URL(raw);
-    qp = url.searchParams.get("user_id");
-  } catch {
-    qp = null;
-  }
+function getTargetUserIdFromReq(req: Request, fallback?: string | null) {
+  const url = new URL(req.url);
+  const qp = url.searchParams.get("user_id");
+  const h = req.headers;
   const h1 = h.get("x-ddt-target-user");
   const h2 = h.get("X-DDT-Target-User");
   const h3 = h.get("x-ddt-targetuser");
   const h4 = h.get("x-ddt-target-user-id");
-  return h1 || h2 || h3 || h4 || qp;
+  return qp ?? h1 ?? h2 ?? h3 ?? h4 ?? fallback ?? null;
 }
 
 // Create a Supabase client with cookie + headers
 async function getSupabase() {
-  const cookieStore = await cookies();
-  const headerStore = await headers();
+  const cookieStore = cookies();
+  const headerStore = headers();
 
   const mergedHeaders: Record<string, string> = {};
   const xfHost = headerStore.get("x-forwarded-host");
@@ -77,7 +70,7 @@ export async function GET(req: Request) {
     }
 
     // 2) Determine target user (admin can query other users)
-    const targetUserId = (await getTargetUserId()) || user?.id;
+    const targetUserId = getTargetUserIdFromReq(req, user?.id ?? null);
     if (!targetUserId) {
       return NextResponse.json(
         { ok: false, error: "no_user" },
@@ -88,19 +81,21 @@ export async function GET(req: Request) {
     // 3) Primary source: credit_accounts
     const acct = await supabase
       .from("credit_accounts")
-      .select("carry_balance, balance, updated_at")
+      .select("carry_balance, plan, updated_at")
       .eq("user_id", targetUserId)
       .maybeSingle();
 
     if (!acct.error && acct.data) {
-      const bal = Number(acct.data.carry_balance ?? acct.data.balance ?? 0);
+      const bal = Number(acct.data.carry_balance ?? 0);
       return NextResponse.json(
         {
           ok: true,
           user_id: targetUserId,
           balance: Number.isFinite(bal) ? bal : 0,
+          remaining_total: Number.isFinite(bal) ? bal : 0,
           source: "credit_accounts",
           updated_at: acct.data.updated_at ?? null,
+          plan: acct.data.plan ?? "prepaid",
         },
         { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
       );
