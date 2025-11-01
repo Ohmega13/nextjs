@@ -1,6 +1,7 @@
 // app/api/tarot/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { SupabaseClient } from "@supabase/supabase-js";
 import { cookies, headers } from "next/headers";
 import OpenAI from "openai";
 
@@ -387,6 +388,17 @@ export async function POST(req: NextRequest) {
       : user.id;
     __debug.targetUserId = targetUserId;
 
+    // If admin is spending credit on behalf of another user, use service-role to bypass RLS on credits table
+    const useServiceRole = isAdmin && targetUserId !== user.id && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const adminSb = useServiceRole
+      ? new SupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        )
+      : null;
+    // client used for credit reads/writes (RLS-bypass when admin operates on others)
+    const creditClient = (adminSb ?? supabase) as any;
+
     // ระบบตัดเครดิตก่อนดูไพ่
     const mode = (body?.mode ?? "") as TarotMode;
     if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
@@ -405,7 +417,7 @@ export async function POST(req: NextRequest) {
       cost = 5;
     }
     // เรียก RPC ที่ Supabase
-    const { data: creditResult, error: creditError } = await supabase.rpc("sp_use_credit", {
+    const { data: creditResult, error: creditError } = await creditClient.rpc("sp_use_credit", {
       p_user_id: targetUserId,
       p_feature: featureKey,
       p_cost: cost,
@@ -413,7 +425,7 @@ export async function POST(req: NextRequest) {
     });
     if (creditError || !creditResult) {
       // ตรวจซ้ำ: ถ้า RPC ล้มเหลว ให้เช็คยอดเครดิตตรง ๆ แล้วลองตัดเครดิตแบบ fallback
-      const { data: creditRow, error: balErr } = await supabase
+      const { data: creditRow, error: balErr } = await creditClient
         .from("credits")
         .select("balance, carry_balance, credit")
         .eq("user_id", targetUserId)
@@ -439,7 +451,7 @@ export async function POST(req: NextRequest) {
       }
       if (chosenCol) {
         const newVal = Math.max(0, currentBalance - cost);
-        const { error: updErr } = await supabase
+        const { error: updErr } = await creditClient
           .from("credits")
           .update({ [chosenCol]: newVal })
           .eq("user_id", targetUserId);
