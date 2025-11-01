@@ -409,6 +409,7 @@ export async function POST(req: NextRequest) {
       "x-ddt-target-user",
       "X-DDT-Target-User",
       "x-ddt-targetUser",
+      "x-ddt-targetuser",
       "x-target-user-id",
       "x-target-user",
       "x-ddt-target-client",
@@ -500,7 +501,18 @@ export async function POST(req: NextRequest) {
       b === null || b === "any" || b === "*" ? null : b;
 
     const numVal = (row: any) =>
-      Number(row?.balance ?? row?.carry_balance ?? row?.credit ?? 0);
+      Number(
+        row?.balance ??
+        row?.carry_balance ??
+        row?.credit ??
+        row?.credits ??
+        row?.amount ??
+        row?.remaining ??
+        0
+      );
+
+    const getRowFeature = (row: any): string | null =>
+      (row?.feature_key ?? row?.feature ?? null);
 
     let paidFrom: NullableBucket = null;
     let lastBalanceSeen: number | null = null;
@@ -513,7 +525,7 @@ export async function POST(req: NextRequest) {
     {
       const byUser = await creditClient
         .from("credits")
-        .select("feature_key,balance,carry_balance,credit")
+        .select("feature_key,feature,balance,carry_balance,credit,credits,amount,remaining")
         .eq("user_id", targetUserId);
       if (!byUser.error && byUser.data && byUser.data.length) {
         rows = byUser.data;
@@ -521,7 +533,7 @@ export async function POST(req: NextRequest) {
       } else if (creditClientId) {
         const byClient = await creditClient
           .from("credits")
-          .select("feature_key,balance,carry_balance,credit")
+          .select("feature_key,feature,balance,carry_balance,credit,credits,amount,remaining")
           .eq("client_id", creditClientId);
         if (!byClient.error && byClient.data && byClient.data.length) {
           rows = byClient.data;
@@ -531,7 +543,7 @@ export async function POST(req: NextRequest) {
       if (rows.length === 0 && creditEmail) {
         const byEmail = await creditClient
           .from("credits")
-          .select("feature_key,balance,carry_balance,credit")
+          .select("feature_key,feature,balance,carry_balance,credit,credits,amount,remaining")
           .eq("email", creditEmail);
         if (!byEmail.error && byEmail.data && byEmail.data.length) {
           rows = byEmail.data;
@@ -545,7 +557,7 @@ export async function POST(req: NextRequest) {
     const pick: NullableBucket =
       priority.find((b) => {
         const matchKey = (fk: any) => (b === null ? fk == null : fk === b);
-        const row = rows.find((r) => matchKey(r.feature_key));
+        const row = rows.find((r) => matchKey(getRowFeature(r)));
         return row && numVal(row) >= cost;
       }) ?? null;
 
@@ -565,9 +577,11 @@ export async function POST(req: NextRequest) {
         // 4) Manual update on the specific row we picked
         const { data: found } = await creditClient
           .from("credits")
-          .select("id,balance,carry_balance,credit,feature_key")
+          .select("id,balance,carry_balance,credit,credits,amount,remaining,feature_key,feature")
           .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId)
+          // match by either column name
           [pick === null ? "is" : "eq"]("feature_key", pick === null ? null : pick)
+          .or(pick === null ? "feature.is.null" : `feature.eq.${pick}`)
           .maybeSingle();
 
         const current = numVal(found);
@@ -576,11 +590,12 @@ export async function POST(req: NextRequest) {
         if (Number.isFinite(current) && current >= cost) {
           const newVal = Math.max(0, current - cost);
           const targetCol =
-            "balance" in (found ?? {})
-              ? "balance"
-              : "credit" in (found ?? {})
-              ? "credit"
-              : "carry_balance";
+            "balance" in (found ?? {}) ? "balance"
+            : "credit" in (found ?? {}) ? "credit"
+            : "credits" in (found ?? {}) ? "credits"
+            : "amount" in (found ?? {}) ? "amount"
+            : "remaining" in (found ?? {}) ? "remaining"
+            : "carry_balance";
           const upd = creditClient
             .from("credits")
             .update({ [targetCol]: newVal })
@@ -601,22 +616,54 @@ export async function POST(req: NextRequest) {
     }
 
     if (!paidFrom) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
-          debug: {
-            targetUserId,
-            featureKey,
-            cost,
-            triedPriority: priority,
-            rows,
-            lastBalanceSeen,
-            creditWhere,
+      // Soft fallback: if total balance across rows is enough, pick the max-balance row
+      const total = rows.reduce((s, r) => s + (Number.isFinite(numVal(r)) ? numVal(r) : 0), 0);
+      if (total >= cost && rows.length > 0) {
+        const richest = rows.reduce((a, b) => (numVal(a) >= numVal(b) ? a : b));
+        const richestKey = getRowFeature(richest);
+        const richestVal = numVal(richest);
+        lastBalanceSeen = richestVal;
+
+        // try deduct from the richest row
+        const upd2 = creditClient
+          .from("credits")
+          .update({ 
+            [ ("balance" in richest) ? "balance"
+              : ("credit" in richest) ? "credit"
+              : ("credits" in richest) ? "credits"
+              : ("amount" in richest) ? "amount"
+              : ("remaining" in richest) ? "remaining"
+              : "carry_balance"
+            ]: Math.max(0, richestVal - cost)
+          })
+          .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId);
+
+        richestKey === null ? (upd2 as any).is("feature_key", null) : upd2.eq("feature_key", richestKey);
+        const { error: upd2Err } = await upd2;
+        if (!upd2Err) {
+          paidFrom = richestKey ?? null;
+        }
+      }
+
+      if (!paidFrom) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
+            debug: {
+              targetUserId,
+              featureKey,
+              cost,
+              triedPriority: priority,
+              rows,
+              total,
+              lastBalanceSeen,
+              creditWhere,
+            },
           },
-        },
-        { status: 402 }
-      );
+          { status: 402 }
+        );
+      }
     }
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
