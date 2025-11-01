@@ -66,22 +66,44 @@ export async function GET() {
       );
     }
 
-    const { data, error } = await supabase.rpc("fn_credit_balance", {
+    // 1) Primary source: Postgres function (RPC)
+    const { data: rpcBalance, error: rpcErr } = await supabase.rpc("fn_credit_balance", {
       p_user: user.id,
     });
 
-    if (error) {
-      console.error("❌ credit_balance error:", error);
-      return Response.json(
-        { ok: false, error: "failed to fetch credit balance" },
-        { status: 500 }
-      );
+    // 2) Fallback: read from accounts table (carry_balance|balance)
+    let fallbackBalance = 0;
+    if (rpcErr || typeof rpcBalance !== "number") {
+      const { data: acct, error: acctErr } = await supabase
+        .from("accounts")
+        .select("carry_balance, balance")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!acctErr) {
+        const v =
+          (acct as any)?.carry_balance ??
+          (acct as any)?.balance ??
+          0;
+        fallbackBalance = Number.isFinite(Number(v)) ? Number(v) : 0;
+      } else {
+        console.error("⚠️ accounts fallback error:", acctErr);
+      }
     }
 
-    return Response.json({
-      ok: true,
-      balance: typeof data === "number" ? data : 0,
-    });
+    const finalBalance =
+      typeof rpcBalance === "number" ? rpcBalance : fallbackBalance;
+
+    return Response.json(
+      {
+        ok: true,
+        balance: finalBalance,
+      },
+      {
+        status: 200,
+        headers: { "Cache-Control": "no-store, max-age=0" },
+      }
+    );
   } catch (e: any) {
     console.error("GET /api/credits/me error:", e?.message || e);
     return Response.json({ ok: false, error: "internal_error" }, { status: 500 });
