@@ -170,8 +170,51 @@ export default function TarotReadingPage() {
     // 'celtic' ไม่ต้องกรอกอะไรเพิ่ม
   }
 
+  // ตรวจเครดิตก่อนเปิด modal หรือเรียก API จริง (helper)
+  async function checkCreditBeforeOpen(): Promise<number> {
+    try {
+      if (role === 'admin' && clientId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const r = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(clientId)}`, {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'include',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!r.ok) return 0;
+        const j: any = await r.json();
+        const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
+        return Number.isFinite(v) ? v : 0;
+      }
+      const r = await fetch('/api/credits/me', {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      if (!r.ok) return 0;
+      const j: any = await r.json();
+      const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
+      return Number.isFinite(v) ? v : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   // --- เปิดไพ่ + บันทึกผ่าน API Route ---
   async function handleDraw() {
+    // ตรวจเครดิตก่อนเรียก API จริง (ให้ logic เหมือนส่วนแสดงผล)
+    const cost =
+      readingType === '3cards' ? TAROT_COST.threeCards :
+      readingType === 'weigh'   ? TAROT_COST.weighOptions :
+                                  TAROT_COST.classic10;
+    const currentCredit = await checkCreditBeforeOpen();
+    if (currentCredit < cost) {
+      alert('เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ');
+      setShowConfirm(false);
+      return;
+    }
+
     let apiPayload: any = {};
     if (readingType === '3cards') {
       apiPayload = { mode: 'threeCards', question: topic.trim() };
@@ -198,6 +241,7 @@ export default function TarotReadingPage() {
         headers,
         body: JSON.stringify(apiPayload),
         cache: 'no-store',
+        credentials: 'include',
       });
     } catch (e) {
       setIsDrawing(false);
