@@ -173,6 +173,95 @@ async function tryDeductFromCreditAccounts(opts: {
 
   return { ok: true as const, balance: newBalance };
 }
+// ---- Credits helpers (normalize + deduct) ----
+const FEATURE_RULE_MAP: Record<string, string> = {
+  tarot_threeCards: "tarot_3",
+  tarot_weighOptions: "tarot_weight",
+  tarot_classic10: "tarot_10",
+  // extra aliases just in case
+  threeCards: "tarot_3",
+  weighOptions: "tarot_weight",
+  classic10: "tarot_10",
+  tarot_3: "tarot_3",
+  tarot_weight: "tarot_weight",
+  tarot_10: "tarot_10",
+};
+
+function normalizeRuleKey(featureKey: string): string {
+  return FEATURE_RULE_MAP[featureKey] ?? featureKey;
+}
+
+/**
+ * Deduct credit by:
+ * 1) Reading cost from `credit_rules` based on normalized feature key.
+ * 2) Inserting rows into `credit_transactions` and `credit_usage`.
+ * 3) Updating `credit_accounts.carry_balance`.
+ *
+ * This uses the provided `writer` client (service-role when admin on behalf).
+ */
+async function deductCredits(params: {
+  supabase: any;      // reader
+  writer: any;        // writer (service-role for admin flows)
+  userId: string;
+  featureKey: string;
+  bucket?: string;
+}) {
+  const { supabase, writer, userId, featureKey, bucket = "tarot" } = params;
+  const ruleKey = normalizeRuleKey(featureKey);
+
+  // 1) read rule cost
+  const { data: rule, error: ruleErr } = await supabase
+    .from("credit_rules")
+    .select("cost")
+    .eq("feature", ruleKey)
+    .maybeSingle();
+
+  if (ruleErr) return { ok: false as const, reason: "rule_read_error", detail: ruleErr.message, ruleKey };
+  const cost = Number(rule?.cost ?? 0);
+  if (!Number.isFinite(cost) || cost <= 0) {
+    return { ok: false as const, reason: "no_rule_or_zero_cost", ruleKey };
+  }
+
+  // 2) read current balance
+  const { data: acct, error: acctErr } = await supabase
+    .from("credit_accounts")
+    .select("carry_balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (acctErr) return { ok: false as const, reason: "account_read_error", detail: acctErr.message, ruleKey };
+  const current = Number(acct?.carry_balance ?? 0);
+  if (!Number.isFinite(current) || current < cost) {
+    return { ok: false as const, reason: "insufficient", balance: current, ruleKey, cost };
+  }
+
+  const newBalance = Math.max(0, current - cost);
+
+  // 3) write usage/transactions then update account (best-effort, do not block user if one insert fails)
+  await writer.from("credit_transactions").insert({
+    user_id: userId,
+    feature: ruleKey,
+    bucket,
+    amount: -cost,
+  });
+
+  await writer.from("credit_usage").insert({
+    user_id: userId,
+    feature: ruleKey,
+    bucket,
+    cost,
+  });
+
+  const upd = await writer
+    .from("credit_accounts")
+    .update({ carry_balance: newBalance, updated_at: new Date().toISOString() })
+    .eq("user_id", userId);
+
+  if (upd.error) return { ok: false as const, reason: "update_error", detail: upd.error.message, ruleKey, cost };
+
+  return { ok: true as const, deducted: cost, newBalance, ruleKey };
+}
+// ---- end helpers ----
 const getOpenAIKey = () =>
   process.env.OPENAI_API_KEY ||
   (process.env as any).OPENAI_APIKEY ||
@@ -678,6 +767,40 @@ export async function POST(req: NextRequest) {
       ? (viaView.mode === "check_only" ? "view-check" : "view+usage")
       : "table";
 
+    // If the balance view path only *checked* availability, perform actual deduction now
+    let creditDebug: any = null;
+    if (viaView.ok && viaView.mode === "check_only") {
+      creditDebug = await deductCredits({
+        supabase: serviceClient ?? supabase,
+        writer: writerClient,
+        userId: targetUserId,
+        featureKey,
+        bucket: primaryBucket,
+      });
+
+      // If the rule table is missing or write failed, fall back to direct account deduction
+      if (!creditDebug?.ok) {
+        const acct = await tryDeductFromCreditAccounts({
+          reader: serviceClient ?? supabase,
+          writer: writerClient,
+          targetUserId,
+          cost,
+        });
+        if (!acct.ok) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "เครดิตไม่พอ หรือหักเครดิตไม่สำเร็จ",
+              debug: { viaView, creditDebug, acct, targetUserId, featureKey, cost }
+            },
+            { status: 402 }
+          );
+        }
+        spentVia = "table";
+        creditDebug = { fallback: "table", ...acct };
+      }
+    }
+
     if (!viaView.ok) {
       // Fallback path: use credit_accounts.carry_balance
       const acct = await tryDeductFromCreditAccounts({
@@ -941,6 +1064,7 @@ export async function POST(req: NextRequest) {
           fallbackUsed: __debug.openaiFallbackUsed === true,
           contentPreview: (contentText || "").slice(0, 120),
           spentVia,
+          creditDebug,
         },
       },
       { status: 200 }

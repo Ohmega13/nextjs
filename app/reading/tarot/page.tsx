@@ -13,11 +13,11 @@ const TAROT_COST: Record<'threeCards' | 'weighOptions' | 'classic10', number> = 
   classic10: 5,
 };
 
-// --- feature keys & buckets (keep in sync with API) ----------------------
+// --- feature keys & buckets (keep in sync with API & credit_rules.feature) ----
 const FEATURE_KEY_BY_MODE: Record<'threeCards' | 'weighOptions' | 'classic10', string> = {
-  threeCards: 'tarot_threeCards',
-  weighOptions: 'tarot_weigh',
-  classic10: 'tarot_ten',
+  threeCards: 'tarot_3',
+  weighOptions: 'tarot_weight',
+  classic10: 'tarot_10',
 };
 
 function buildBuckets(mode: 'threeCards' | 'weighOptions' | 'classic10') {
