@@ -31,6 +31,9 @@ export default function TopNav() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
+      // Get the current user id
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id || session?.user?.id || null;
       if (!token) {
         setCredits(null);
         return;
@@ -39,7 +42,6 @@ export default function TopNav() {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
-        credentials: 'include',
       });
       if (!res.ok) {
         setCredits(null);
@@ -47,13 +49,29 @@ export default function TopNav() {
       }
       const json = await res.json();
       // รองรับหลายคีย์: balance | carry_balance | credit | credits.balance
-      const num = Number(
+      let num = Number(
         json?.balance ??
         json?.carry_balance ??
         json?.credit ??
         json?.credits?.balance ??
         0
       );
+      // ถ้าอ่านไม่ได้/เป็น 0 ให้ลอง fallback ไป endpoint แอดมินที่อิง user_id ตรง ๆ
+      if (!Number.isFinite(num) || num === 0) {
+        if (uid && token) {
+          const r2 = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(uid)}`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+            credentials: 'include',
+          });
+          if (r2.ok) {
+            const j2 = await r2.json();
+            const n2 = Number(j2?.balance ?? j2?.carry_balance ?? 0);
+            if (Number.isFinite(n2)) num = n2;
+          }
+        }
+      }
       setCredits(Number.isFinite(num) ? num : 0);
     } catch {
       setCredits(null);
