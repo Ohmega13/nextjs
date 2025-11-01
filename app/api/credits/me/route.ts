@@ -6,11 +6,17 @@ import { createServerClient } from "@supabase/ssr";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Extract target user id (for admin cases)
-function getTargetUserId(): string | null {
-  const h = headers();
-  const url = new URL(h.get("x-url") || "http://localhost");
-  const qp = url.searchParams.get("user_id");
+// Extract target user id (for admin cases) — must await headers() in this runtime
+async function getTargetUserId(): Promise<string | null> {
+  const h = await headers();
+  const raw = h.get("x-url") || "http://localhost";
+  let qp: string | null = null;
+  try {
+    const url = new URL(raw);
+    qp = url.searchParams.get("user_id");
+  } catch {
+    qp = null;
+  }
   const h1 = h.get("x-ddt-target-user");
   const h2 = h.get("X-DDT-Target-User");
   const h3 = h.get("x-ddt-targetuser");
@@ -71,7 +77,7 @@ export async function GET(req: Request) {
     }
 
     // 2) Determine target user (admin can query other users)
-    const targetUserId = getTargetUserId() || user?.id;
+    const targetUserId = (await getTargetUserId()) || user?.id;
     if (!targetUserId) {
       return NextResponse.json(
         { ok: false, error: "no_user" },

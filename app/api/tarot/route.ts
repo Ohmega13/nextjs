@@ -160,18 +160,46 @@ async function tryDeductFromCreditAccounts(opts: {
     return { ok: false as const, reason: "insufficient", balance: current };
   }
 
-  // 2) Deduct and update
+  // 2) Deduct and update using optimistic concurrency and return persisted balance
+  // Optimistic concurrency: only update if the old balance still matches
   const newBalance = Math.max(0, current - cost);
   const upd = await writer
     .from("credit_accounts")
     .update({ carry_balance: newBalance, updated_at: new Date().toISOString() })
-    .eq("user_id", targetUserId);
+    .eq("user_id", targetUserId)
+    .eq("carry_balance", current)
+    .select("carry_balance")
+    .single();
 
-  if (upd.error) {
-    return { ok: false as const, reason: "update_error", detail: upd.error.message };
+  if (upd.error || !upd.data) {
+    // Re-read & retry once to tolerate race conditions
+    const again = await reader
+      .from("credit_accounts")
+      .select("carry_balance")
+      .eq("user_id", targetUserId)
+      .maybeSingle();
+
+    const cur2 = Number(again.data?.carry_balance ?? 0);
+    if (!Number.isFinite(cur2) || cur2 < cost) {
+      return { ok: false as const, reason: "insufficient_after_retry", balance: cur2 };
+    }
+
+    const new2 = Math.max(0, cur2 - cost);
+    const upd2 = await writer
+      .from("credit_accounts")
+      .update({ carry_balance: new2, updated_at: new Date().toISOString() })
+      .eq("user_id", targetUserId)
+      .eq("carry_balance", cur2)
+      .select("carry_balance")
+      .single();
+
+    if (upd2.error || !upd2.data) {
+      return { ok: false as const, reason: "concurrent_update", detail: upd2.error?.message };
+    }
+    return { ok: true as const, balance: Number(upd2.data.carry_balance ?? new2) };
   }
 
-  return { ok: true as const, balance: newBalance };
+  return { ok: true as const, balance: Number(upd.data.carry_balance ?? newBalance) };
 }
 // ---- Credits helpers (normalize + deduct) ----
 const FEATURE_RULE_MAP: Record<string, string> = {
@@ -235,31 +263,64 @@ async function deductCredits(params: {
     return { ok: false as const, reason: "insufficient", balance: current, ruleKey, cost };
   }
 
+  // 3) FIRST: update account with optimistic concurrency to reflect new balance immediately
   const newBalance = Math.max(0, current - cost);
+  let upd = await writer
+    .from("credit_accounts")
+    .update({ carry_balance: newBalance, updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("carry_balance", current)
+    .select("carry_balance")
+    .single();
 
-  // 3) write usage/transactions then update account (best-effort, do not block user if one insert fails)
-  await writer.from("credit_transactions").insert({
+  if (upd.error || !upd.data) {
+    // Retry once in case of race
+    const again = await supabase
+      .from("credit_accounts")
+      .select("carry_balance")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const cur2 = Number(again.data?.carry_balance ?? 0);
+    if (!Number.isFinite(cur2) || cur2 < cost) {
+      return { ok: false as const, reason: "insufficient_after_retry", balance: cur2, ruleKey, cost };
+    }
+    const new2 = Math.max(0, cur2 - cost);
+    upd = await writer
+      .from("credit_accounts")
+      .update({ carry_balance: new2, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("carry_balance", cur2)
+      .select("carry_balance")
+      .single();
+
+    if (upd.error || !upd.data) {
+      return { ok: false as const, reason: "concurrent_update", detail: upd.error?.message, ruleKey, cost };
+    }
+  }
+
+  const persistedBalance = Number(upd.data.carry_balance);
+
+  // 4) THEN: write logs (best effort; do not fail the deduction if logs fail)
+  const tx = await writer.from("credit_transactions").insert({
     user_id: userId,
     feature: ruleKey,
     bucket,
     amount: -cost,
   });
-
-  await writer.from("credit_usage").insert({
+  const usg = await writer.from("credit_usage").insert({
     user_id: userId,
     feature: ruleKey,
     bucket,
     cost,
   });
+  // We won't throw if tx/usg fail; include detail in return for debugging
+  const warn = {
+    txError: tx.error?.message ?? null,
+    usageError: usg.error?.message ?? null,
+  };
 
-  const upd = await writer
-    .from("credit_accounts")
-    .update({ carry_balance: newBalance, updated_at: new Date().toISOString() })
-    .eq("user_id", userId);
-
-  if (upd.error) return { ok: false as const, reason: "update_error", detail: upd.error.message, ruleKey, cost };
-
-  return { ok: true as const, deducted: cost, newBalance, ruleKey };
+  return { ok: true as const, deducted: cost, newBalance: persistedBalance, ruleKey, warn };
 }
 
 /**
@@ -297,7 +358,7 @@ async function adjustLegacyCreditsTable(params: {
         const newTotal = Math.max(0, currentTotal - cost);
         const upd = await client
           .from("credits")
-          .update({ remaining_total: newTotal, updated_at: new Date().toISOString() })
+          .update({ remaining_total: newTotal, remaining: newTotal, updated_at: new Date().toISOString() })
           .eq("id", row.id);
         return { ok: !upd.error, bucket: bucketToUse, from: currentTotal, to: newTotal, detail: upd.error?.message };
       }

@@ -143,20 +143,58 @@ export default function TarotReadingPage() {
 
   const loadCredits = useCallback(async (targetUserId?: string) => {
     try {
-      // unified credits fetch via /api/credits/me
-      const uid = (role === 'admin' && (targetUserId || clientId)) ? (targetUserId || clientId!) : '';
-      const url = `/api/credits/me${uid ? `?user_id=${encodeURIComponent(uid)}` : ''}`;
+      // Determine target uid (admin can view other's credits)
+      const uid =
+        role === 'admin' && (targetUserId || clientId)
+          ? (targetUserId || clientId!) 
+          : '';
+
+      // Build URL with cache buster so no intermediate cache can replay old balance
+      const qs = new URLSearchParams();
+      if (uid) qs.set('user_id', uid);
+      qs.set('t', String(Date.now()));
+      const url = `/api/credits/me?${qs.toString()}`;
+
+      // Always make a fresh request; send target uid via header as well for safety
+      const headers: Record<string, string> = {
+        'accept': 'application/json',
+        'cache-control': 'no-cache',
+        'pragma': 'no-cache',
+      };
+      if (uid) {
+        headers['x-ddt-target-user'] = uid;
+        headers['X-DDT-Target-User'] = uid;
+      }
 
       const res = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
         credentials: 'include',
-        headers: uid ? { 'x-ddt-target-user': uid } : {},
+        headers,
       });
 
-      if (!res.ok) { setCredits(0); return; }
+      if (!res.ok) {
+        // On 402 (insufficient credit) we still want to refresh the visible number from payload if any
+        try {
+          const fallback = await res.json();
+          const maybe =
+            Number(fallback?.balance ??
+                   fallback?.remaining_total ??
+                   fallback?.remaining ??
+                   fallback?.carry_balance ??
+                   fallback?.credit ??
+                   fallback?.credits?.balance ??
+                   0);
+          setCredits(Number.isFinite(maybe) ? maybe : 0);
+        } catch {
+          setCredits(0);
+        }
+        return;
+      }
 
       const data: any = await res.json();
+
+      // Accept multiple shapes from API to be robust
       const nextBal = Number(
         data?.balance ??
         data?.remaining_total ??
