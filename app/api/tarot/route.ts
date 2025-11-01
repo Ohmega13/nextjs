@@ -300,18 +300,25 @@ function isUUIDLike(id: string | null | undefined) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
-async function resolveTargetUserId(supabase: any, id: string) {
-  // If the given id matches a client.id, map it to the owning user_id.
-  // Otherwise assume it's already a user_id.
+// Prefer service-role for RLS-safe lookup (clients -> user_id)
+async function resolveTargetUserId(
+  serviceClient: SupabaseClient | null,
+  sessionClient: any,
+  id: string
+): Promise<{ userId: string; mapped: boolean }> {
+  // Prefer service-role for RLS-safe lookup (clients -> user_id)
+  const client = serviceClient ?? sessionClient;
   try {
-    const { data: c } = await supabase
-      .from('clients')
-      .select('user_id')
-      .eq('id', id)
+    const { data: c } = await client
+      .from("clients")
+      .select("user_id")
+      .eq("id", id)
       .maybeSingle();
-    if (c?.user_id) return c.user_id as string;
+    if (c?.user_id) {
+      return { userId: c.user_id as string, mapped: true };
+    }
   } catch {}
-  return id;
+  return { userId: id, mapped: false };
 }
 
 // --- Supabase client helper (Next 15-safe) ---
@@ -359,6 +366,15 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
     const bearer = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
     const supabase = await getSupabase(bearer);
+
+    // Service-role client (RLS bypass) used for id-mapping and credit ops when available
+    const serviceClient = process.env.SUPABASE_SERVICE_ROLE_KEY
+      ? new SupabaseClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        )
+      : null;
+    __debug.serviceRole = !!serviceClient;
 
     // parse request body early so we can use target user
     let body: any = {};
@@ -413,21 +429,17 @@ export async function POST(req: NextRequest) {
       ? (targetHeader || targetBody || targetClientBody)
       : user.id;
 
-    // If admin passed a client id, map it to the actual user_id
-    const targetUserId = await resolveTargetUserId(supabase, targetRaw);
+    // If admin passed a client id, map it to the actual user_id (use service-role if available)
+    const { userId: targetUserId, mapped: mappedFromClient } =
+      await resolveTargetUserId(serviceClient, supabase, targetRaw);
     __debug.targetRaw = targetRaw;
     __debug.targetUserId = targetUserId;
+    __debug.mappedFromClient = mappedFromClient;
 
     // If admin is spending credit on behalf of another user, use service-role to bypass RLS on credits table
-    const useServiceRole = isAdmin && targetUserId !== user.id && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const adminSb = useServiceRole
-      ? new SupabaseClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!
-        )
-      : null;
+    const useServiceRole = isAdmin && targetUserId !== user.id && !!serviceClient;
     // client used for credit reads/writes (RLS-bypass when admin operates on others)
-    const creditClient = (adminSb ?? supabase) as any;
+    const creditClient = (useServiceRole ? serviceClient! : supabase) as any;
 
     // ระบบตัดเครดิตก่อนดูไพ่
     const mode = (body?.mode ?? "") as TarotMode;
@@ -469,7 +481,14 @@ export async function POST(req: NextRequest) {
           {
             ok: false,
             error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
-            debug: { targetUserId, currentBalance, cost, featureKey }
+            debug: {
+              targetRaw,
+              targetUserId,
+              mappedFromClient,
+              currentBalance,
+              cost,
+              featureKey
+            }
           },
           { status: 402 }
         );
