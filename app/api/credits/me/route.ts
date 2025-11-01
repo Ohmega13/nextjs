@@ -5,6 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const revalidate = 0;
 
 function getTargetUserIdFromReq(req: Request, fallback?: string | null) {
   const url = new URL(req.url);
@@ -90,14 +91,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           ok: true,
-          user_id: targetUserId,
-          balance: Number.isFinite(bal) ? bal : 0,
-          remaining_total: Number.isFinite(bal) ? bal : 0,
-          source: "credit_accounts",
-          updated_at: acct.data.updated_at ?? null,
-          plan: acct.data.plan ?? "prepaid",
+          data: {
+            user_id: targetUserId,
+            bucket: "tarot",
+            balance: Number.isFinite(bal) ? bal : 0,
+            carry_balance: Number.isFinite(bal) ? bal : 0,
+            credit: Number.isFinite(bal) ? bal : 0,
+            credits: Number.isFinite(bal) ? bal : 0,
+            amount: Number.isFinite(bal) ? bal : 0,
+            remaining: Number.isFinite(bal) ? bal : 0,
+            remaining_total: Number.isFinite(bal) ? bal : 0,
+            plan: acct.data.plan ?? "prepaid",
+            updated_at: acct.data.updated_at ?? null,
+            source: "credit_accounts",
+          },
         },
-        { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
+        {
+          status: 200,
+          headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
+        }
       );
     }
 
@@ -125,17 +137,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
-        user_id: targetUserId,
-        balance: legacyBalance,
-        source: "credits_fallback",
+        data: {
+          user_id: targetUserId,
+          bucket: "tarot",
+          balance: legacyBalance,
+          carry_balance: legacyBalance,
+          credit: legacyBalance,
+          credits: legacyBalance,
+          amount: legacyBalance,
+          remaining: legacyBalance,
+          remaining_total: legacyBalance,
+          plan: "prepaid",
+          source: "credits_fallback",
+        },
       },
-      { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } }
+      {
+        status: 200,
+        headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
+      }
     );
   } catch (e: any) {
     console.error("GET /api/credits/me error:", e);
     return NextResponse.json(
       { ok: false, error: "internal_error" },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }

@@ -948,6 +948,24 @@ export async function POST(req: NextRequest) {
         newBalance: Number((acct as any).balance ?? 0),
         ruleKey: normalizeRuleKey(featureKey),
       };
+
+      // Also write logs so any view that depends on usage/transactions stays in sync
+      try {
+        await writerClient.from("credit_transactions").insert({
+          user_id: targetUserId,
+          feature: normalizeRuleKey(featureKey),
+          bucket: primaryBucket,
+          amount: -cost,
+        });
+      } catch {}
+      try {
+        await writerClient.from("credit_usage").insert({
+          user_id: targetUserId,
+          feature: normalizeRuleKey(featureKey),
+          bucket: primaryBucket,
+          cost,
+        });
+      } catch {}
     }
 
     // Best-effort adjust legacy `credits` table so UI using that table stays in sync
@@ -1183,17 +1201,44 @@ export async function POST(req: NextRequest) {
     } else if (creditDebug && typeof creditDebug.balance === "number") {
       remainingNow = Number(creditDebug.balance);
     } else {
-      // final fallback: read from credit_accounts
+      // Try to reflect the same source the UI uses: the balance VIEW
       try {
-        const rNow = await (serviceClient ?? supabase)
-          .from("credit_accounts")
-          .select("carry_balance")
-          .eq("user_id", targetUserId)
-          .maybeSingle();
-        if (!rNow.error) {
-          remainingNow = Number(rNow.data?.carry_balance ?? 0);
+        const vres = await (serviceClient ?? supabase)
+          .from(BALANCE_VIEW)
+          .select("remaining_total,remaining,balance,carry_balance,credit,credits,amount")
+          .eq("user_id", targetUserId);
+        if (!vres.error && Array.isArray(vres.data)) {
+          const sum = vres.data.reduce((s: number, r: any) => {
+            const rt = Number(r?.remaining_total);
+            if (Number.isFinite(rt)) return s + Math.max(0, rt);
+            const rr = Number(r?.remaining);
+            if (Number.isFinite(rr)) return s + Math.max(0, rr);
+            const derived =
+              Number(r?.balance ?? 0) +
+              Number(r?.carry_balance ?? 0) +
+              Number(r?.credit ?? 0) +
+              Number(r?.credits ?? 0) -
+              Number(r?.amount ?? 0);
+            return s + (Number.isFinite(derived) ? Math.max(0, derived) : 0);
+          }, 0);
+          if (Number.isFinite(sum)) {
+            remainingNow = sum;
+          }
         }
       } catch {}
+      // Final fallback: read from credit_accounts
+      if (remainingNow === null) {
+        try {
+          const rNow = await (serviceClient ?? supabase)
+            .from("credit_accounts")
+            .select("carry_balance")
+            .eq("user_id", targetUserId)
+            .maybeSingle();
+          if (!rNow.error) {
+            remainingNow = Number(rNow.data?.carry_balance ?? 0);
+          }
+        } catch {}
+      }
     }
 
     return new NextResponse(

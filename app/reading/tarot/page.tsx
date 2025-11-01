@@ -176,15 +176,17 @@ export default function TarotReadingPage() {
       if (!res.ok) {
         // On 402 (insufficient credit) we still want to refresh the visible number from payload if any
         try {
-          const fallback = await res.json();
-          const maybe =
-            Number(fallback?.balance ??
-                   fallback?.remaining_total ??
-                   fallback?.remaining ??
-                   fallback?.carry_balance ??
-                   fallback?.credit ??
-                   fallback?.credits?.balance ??
-                   0);
+          const raw = await res.json();
+          const fb = raw?.data ?? raw;
+          const maybe = Number(
+            fb?.remaining_total ??
+            fb?.remaining ??
+            fb?.balance ??
+            fb?.carry_balance ??
+            fb?.credit ??
+            fb?.credits?.balance ??
+            0
+          );
           setCredits(Number.isFinite(maybe) ? maybe : 0);
         } catch {
           setCredits(0);
@@ -192,16 +194,16 @@ export default function TarotReadingPage() {
         return;
       }
 
-      const data: any = await res.json();
+      const raw: any = await res.json();
+      const payload = raw?.data ?? raw;
 
-      // Accept multiple shapes from API to be robust
       const nextBal = Number(
-        data?.balance ??
-        data?.remaining_total ??
-        data?.remaining ??
-        data?.carry_balance ??
-        data?.credit ??
-        data?.credits?.balance ??
+        payload?.remaining_total ??
+        payload?.remaining ??
+        payload?.balance ??
+        payload?.carry_balance ??
+        payload?.credit ??
+        payload?.credits?.balance ??
         0
       );
 
@@ -252,7 +254,16 @@ export default function TarotReadingPage() {
         }
         if (!r.ok) return 0;
         const j: any = await r.json();
-        const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
+        const jd = j?.data ?? j;
+        const v = Number(
+          jd?.remaining_total ??
+          jd?.remaining ??
+          jd?.balance ??
+          jd?.carry_balance ??
+          jd?.credit ??
+          jd?.credits?.balance ??
+          0
+        );
         return Number.isFinite(v) ? v : 0;
       }
       const r = await fetch('/api/credits/me', {
@@ -262,7 +273,16 @@ export default function TarotReadingPage() {
       });
       if (!r.ok) return 0;
       const j: any = await r.json();
-      const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
+      const jd = j?.data ?? j;
+      const v = Number(
+        jd?.remaining_total ??
+        jd?.remaining ??
+        jd?.balance ??
+        jd?.carry_balance ??
+        jd?.credit ??
+        jd?.credits?.balance ??
+        0
+      );
       return Number.isFinite(v) ? v : 0;
     } catch {
       return 0;
