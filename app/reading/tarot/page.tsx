@@ -128,17 +128,26 @@ export default function TarotReadingPage() {
 
   async function loadCredits() {
     try {
-      const res = await fetch('/api/credits/me', { method: 'GET', cache: 'no-store' });
-      const data: CreditsMe = await res.json();
-      if ((data as any)?.ok) {
-        if ('balance' in (data as any)) {
-          setCredits((data as any).balance ?? null);
-        } else if ('credits' in (data as any)) {
-          setCredits((data as any).credits?.balance ?? null);
-        }
+      const res = await fetch('/api/credits/me', {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'include', // ensure cookies are sent on same-origin
+      });
+      if (!res.ok) {
+        setCredits(0);
+        return;
+      }
+      const data: any = await res.json();
+      if (data && data.ok) {
+        const v = Number(
+          data.balance ?? data.carry_balance ?? data.credit ?? (data.credits?.balance) ?? 0
+        );
+        setCredits(Number.isFinite(v) ? v : 0);
+      } else {
+        setCredits(0);
       }
     } catch {
-      // ignore
+      setCredits(0);
     }
   }
 
