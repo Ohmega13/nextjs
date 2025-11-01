@@ -39,20 +39,22 @@ export default function TopNav() {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
+        credentials: 'include',
       });
       if (!res.ok) {
         setCredits(null);
         return;
       }
       const json = await res.json();
-      // รองรับทั้งสองรูปแบบ: { ok:true, balance } หรือ { ok:true, credits:{ balance } }
-      const bal =
-        typeof json?.balance === 'number'
-          ? json.balance
-          : typeof json?.credits?.balance === 'number'
-          ? json.credits.balance
-          : null;
-      setCredits(bal);
+      // รองรับหลายคีย์: balance | carry_balance | credit | credits.balance
+      const num = Number(
+        json?.balance ??
+        json?.carry_balance ??
+        json?.credit ??
+        json?.credits?.balance ??
+        0
+      );
+      setCredits(Number.isFinite(num) ? num : 0);
     } catch {
       setCredits(null);
     }
