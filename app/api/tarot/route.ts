@@ -441,6 +441,24 @@ export async function POST(req: NextRequest) {
     // client used for credit reads/writes (RLS-bypass when admin operates on others)
     const creditClient = (useServiceRole ? serviceClient! : supabase) as any;
 
+    // Resolve identifiers used by 'credits' table (some envs store by client_id or email)
+    let creditClientId: string | null = null;
+    let creditEmail: string | null = null;
+    try {
+      const { data: cInfo } = await creditClient
+        .from("clients")
+        .select("id,email")
+        .eq("user_id", targetUserId)
+        .limit(1)
+        .maybeSingle();
+      creditClientId = cInfo?.id ?? null;
+      creditEmail = cInfo?.email ?? user.email ?? null;
+    } catch {
+      creditClientId = null;
+      creditEmail = user.email ?? null;
+    }
+    __debug.creditIdentifiers = { creditClientId, creditEmail };
+
     // ระบบตัดเครดิตก่อนดูไพ่
     const mode = (body?.mode ?? "") as TarotMode;
     if (!["threeCards", "weighOptions", "classic10"].includes(mode)) {
@@ -469,48 +487,82 @@ export async function POST(req: NextRequest) {
     let paidFrom: BucketKey | null = null;
     let lastBalanceSeen: number | null = null;
 
-    // helper: อ่านยอดจากตาราง credits (fallback)
+    // helper: อ่านยอดจากตาราง credits (fallback, tries user_id, client_id, email)
     const readGenericBalance = async () => {
-      const { data: creditRow } = await creditClient
-        .from("credits")
-        .select("balance, carry_balance, credit")
-        .eq("user_id", targetUserId)
-        .maybeSingle();
-      const val = Number(
-        creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
-      );
-      return Number.isFinite(val) ? val : 0;
-    };
-
-    // helper: อัปเดตยอด generic เมื่อ RPC ใช้ไม่ได้
-    const deductGeneric = async (amount: number) => {
-      const { data: creditRow } = await creditClient
-        .from("credits")
-        .select("balance, carry_balance, credit")
-        .eq("user_id", targetUserId)
-        .maybeSingle();
-      const current = Number(
-        creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
-      );
-      lastBalanceSeen = current;
-      if (!Number.isFinite(current) || current < amount) return false;
-
-      const preferCols = ["balance", "credit", "carry_balance"];
-      let chosenCol: string | null = null;
-      for (const c of preferCols) {
-        if (creditRow && Object.prototype.hasOwnProperty.call(creditRow, c)) {
-          chosenCol = c;
-          break;
+      // Try user_id
+      {
+        const { data: r } = await creditClient
+          .from("credits")
+          .select("balance, carry_balance, credit")
+          .eq("user_id", targetUserId)
+          .maybeSingle();
+        if (r) {
+          const v = Number(r?.balance ?? r?.carry_balance ?? r?.credit ?? 0);
+          if (Number.isFinite(v)) return v;
         }
       }
-      if (!chosenCol) return false;
+      // Try client_id
+      if (creditClientId) {
+        const { data: r } = await creditClient
+          .from("credits")
+          .select("balance, carry_balance, credit")
+          .eq("client_id", creditClientId)
+          .maybeSingle();
+        if (r) {
+          const v = Number(r?.balance ?? r?.carry_balance ?? r?.credit ?? 0);
+          if (Number.isFinite(v)) return v;
+        }
+      }
+      // Try email
+      if (creditEmail) {
+        const { data: r } = await creditClient
+          .from("credits")
+          .select("balance, carry_balance, credit")
+          .eq("email", creditEmail)
+          .maybeSingle();
+        if (r) {
+          const v = Number(r?.balance ?? r?.carry_balance ?? r?.credit ?? 0);
+          if (Number.isFinite(v)) return v;
+        }
+      }
+      return 0;
+    };
 
-      const newVal = Math.max(0, current - amount);
-      const { error: updErr } = await creditClient
-        .from("credits")
-        .update({ [chosenCol]: newVal })
-        .eq("user_id", targetUserId);
-      return !updErr;
+    // helper: อัปเดตยอด generic เมื่อ RPC ใช้ไม่ได้ (tries user_id, client_id, email)
+    const deductGeneric = async (amount: number) => {
+      // Internal helper to update a located row using a specific where-clause
+      const updateWith = async (where: { kind: "user_id" | "client_id" | "email"; value: string }) => {
+        const { data: row } = await creditClient
+          .from("credits")
+          .select("balance, carry_balance, credit")
+          .eq(where.kind, where.value)
+          .maybeSingle();
+        const current = Number(row?.balance ?? row?.carry_balance ?? row?.credit ?? 0);
+        lastBalanceSeen = current;
+        if (!Number.isFinite(current) || current < amount) return false;
+
+        const newVal = Math.max(0, current - amount);
+        // Prefer updating the first existing numeric column among balance/credit/carry_balance
+        const preferCols = ["balance", "credit", "carry_balance"];
+        const targetCol = preferCols.find((c) => row && Object.prototype.hasOwnProperty.call(row, c)) || "balance";
+
+        const { error: updErr } = await creditClient
+          .from("credits")
+          .update({ [targetCol]: newVal })
+          .eq(where.kind, where.value);
+        return !updErr;
+      };
+
+      // Try by user_id first
+      if (await updateWith({ kind: "user_id", value: targetUserId })) return true;
+
+      // Then by client_id
+      if (creditClientId && await updateWith({ kind: "client_id", value: creditClientId })) return true;
+
+      // Then by email
+      if (creditEmail && await updateWith({ kind: "email", value: creditEmail })) return true;
+
+      return false;
     };
 
     // ลองตัดเครดิตด้วย RPC ทีละ bucket
@@ -554,7 +606,8 @@ export async function POST(req: NextRequest) {
             currentBalance: lastBalanceSeen ?? 0,
             cost,
             featureKey,
-            triedBuckets: bucketsToTry
+            triedBuckets: bucketsToTry,
+            identifiersTried: { user_id: targetUserId, client_id: creditClientId, email: creditEmail }
           }
         },
         { status: 402 }

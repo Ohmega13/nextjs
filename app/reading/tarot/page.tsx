@@ -236,6 +236,10 @@ export default function TarotReadingPage() {
       readingType === '3cards' ? TAROT_COST.threeCards :
       readingType === 'weigh'   ? TAROT_COST.weighOptions :
                                   TAROT_COST.classic10;
+    const featureKey =
+      readingType === '3cards' ? 'tarot_threeCards' :
+      readingType === 'weigh'   ? 'tarot_weigh' :
+                                  'tarot_ten';
     let available = typeof credits === 'number' ? credits : null;
     if (available === null) {
       available = await checkCreditBeforeOpen();
@@ -250,18 +254,20 @@ export default function TarotReadingPage() {
 
     let apiPayload: any = {};
     if (readingType === '3cards') {
-      apiPayload = { mode: 'threeCards', question: topic.trim() };
+      apiPayload = { mode: 'threeCards', question: topic.trim(), featureKey, cost };
     } else if (readingType === 'weigh') {
       const opts = options.map(o => o.trim()).filter(Boolean).slice(0, 3);
-      apiPayload = { mode: 'weighOptions', options: opts };
+      apiPayload = { mode: 'weighOptions', options: opts, featureKey, cost };
     } else {
-      apiPayload = { mode: 'classic10' };
+      apiPayload = { mode: 'classic10', featureKey, cost };
     }
     // ✅ ถ้าเป็นแอดมินและเลือกลูกดวงอยู่ ให้ส่ง user_id ไปใน payload ด้วย
     // เพื่อเป็น fallback กรณี header ถูกตัดทิ้งระหว่างทาง (เช่นผ่าน proxy)
     if (role === 'admin' && clientId) {
-      apiPayload.user_id = clientId;
-      apiPayload.targetUserId = clientId; // เผื่อฝั่ง API รองรับชื่อคีย์นี้
+      apiPayload.user_id = clientId;           // server may expect user_id
+      apiPayload.targetUserId = clientId;      // or targetUserId
+      apiPayload.client_id = clientId;         // some routes expect client_id
+      apiPayload.targetClientId = clientId;    // or targetClientId
     }
 
     // Build headers for tarot API: always send credentials and (if admin) the target user
@@ -276,6 +282,8 @@ export default function TarotReadingPage() {
         hdrs.set('x-ddt-target-user', clientId);
         hdrs.set('X-DDT-Target-User', clientId);
         hdrs.set('x-ddt-targetUser', clientId);
+        hdrs.set('x-ddt-target-client', clientId);   // some APIs use client id
+        hdrs.set('X-DDT-Target-Client', clientId);
       }
     } catch {}
 
@@ -383,8 +391,18 @@ export default function TarotReadingPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const prof = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-      setRole((prof.data?.role as any) || 'member');
+      let roleValue: string | null = null;
+      // Try schema where profiles.user_id references auth id
+      {
+        const prof = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
+        roleValue = (prof.data?.role as any) ?? null;
+      }
+      // Fallback schema where profiles.id is the auth id
+      if (!roleValue) {
+        const prof2 = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+        roleValue = (prof2.data?.role as any) ?? null;
+      }
+      setRole(((roleValue || '') as string).toLowerCase() === 'admin' ? 'admin' : 'member');
     })();
   }, []);
 
