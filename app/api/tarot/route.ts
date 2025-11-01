@@ -8,6 +8,9 @@ import OpenAI from "openai";
 // --- constants ---
 const SYSTEM_KEY = "tarot" as const;
 const DEBUG_TAG = "[api/tarot]";
+// balance view + usage ledger (allow override by ENV)
+const BALANCE_VIEW = process.env.NEXT_PUBLIC_CREDITS_BALANCE_VIEW || "credits_balance_view";
+const USAGE_TABLE  = process.env.NEXT_PUBLIC_CREDITS_USAGE_TABLE  || "credits_usage";
 const getOpenAIKey = () =>
   process.env.OPENAI_API_KEY ||
   (process.env as any).OPENAI_APIKEY ||
@@ -482,6 +485,30 @@ export async function POST(req: NextRequest) {
 
 
     // ----- Credit deduction (bucket-aware with proper fallbacks) -----
+    // First, prefer using the same source of truth as UI (balance view + usage ledger)
+    const primaryBucket =
+      (featureKey.split("_")[0] === "tarot") ? "tarot" :
+      (featureKey.split("_")[0] === "palm")  ? "palm"  :
+      (featureKey.split("_")[0] === "natal") ? "natal" :
+      featureKey.split("_")[0];
+
+    // choose writer: if admin spending for others and service-role available, write with service-role
+    const writerClient = (isAdmin && targetUserId !== user.id && !!serviceClient) ? serviceClient : supabase;
+
+    const viaView = await tryDeductViaBalanceView({
+      reader: (serviceClient ?? supabase),
+      writer: writerClient,
+      targetUserId,
+      bucket: primaryBucket,
+      featureKey,
+      cost,
+      createdBy: user.id,
+    });
+
+    // track which path we used for debug
+    let spentVia: "view+usage" | "table" = viaView.ok ? "view+usage" : "table";
+
+    if (!viaView.ok) {
     type NullableBucket = string | null;
 
     const buildPriority = (fk: string): NullableBucket[] => {
@@ -513,6 +540,48 @@ export async function POST(req: NextRequest) {
 
     const getRowFeature = (row: any): string | null =>
       (row?.feature_key ?? row?.feature ?? null);
+
+    // Try deduct using balance VIEW + USAGE ledger (preferred: same source as UI)
+    async function tryDeductViaBalanceView(opts: {
+      reader: any;           // supabase or service-role client for SELECT
+      writer: any;           // supabase or service-role client for INSERT (usage)
+      targetUserId: string;
+      bucket: string;        // "tarot", "palm", etc.
+      featureKey: string;
+      cost: number;
+      createdBy: string;     // who triggers spend
+    }): Promise<{ ok: boolean; remaining?: number; reason?: string }> {
+      const { reader, writer, targetUserId, bucket, featureKey, cost, createdBy } = opts;
+      // 1) read balance from view
+      const sel = await reader
+        .from(BALANCE_VIEW)
+        .select("balance")
+        .eq("user_id", targetUserId)
+        .eq("bucket", bucket)
+        .maybeSingle();
+
+      // Relation not found -> skip silently to allow table-based fallback
+      if (sel?.error?.code === "42P01") return { ok: false, reason: "view_not_found" };
+
+      if (sel.error) return { ok: false, reason: sel.error.message };
+      const current = Number(sel.data?.balance ?? 0);
+      if (!Number.isFinite(current) || current < opts.cost) {
+        return { ok: false, reason: "insufficient_view_balance" };
+      }
+
+      // 2) insert a usage row (ledger-style)
+      const ins = await writer.from(USAGE_TABLE).insert({
+        user_id: targetUserId,
+        bucket,
+        feature_key: featureKey,
+        delta: -cost,
+        reason: "tarot_usage",
+        created_by: createdBy,
+      });
+
+      if (ins.error) return { ok: false, reason: ins.error.message };
+      return { ok: true, remaining: current - cost };
+    }
 
     let paidFrom: NullableBucket = null;
     let lastBalanceSeen: number | null = null;
@@ -665,6 +734,7 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+    } // <-- end if (!viaView.ok)
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
@@ -896,6 +966,7 @@ export async function POST(req: NextRequest) {
           openai: __debug.openai,
           fallbackUsed: __debug.openaiFallbackUsed === true,
           contentPreview: (contentText || "").slice(0, 120),
+          spentVia,
         },
       },
       { status: 200 }
