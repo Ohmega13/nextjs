@@ -13,6 +13,21 @@ const TAROT_COST: Record<'threeCards' | 'weighOptions' | 'classic10', number> = 
   classic10: 5,
 };
 
+// --- feature keys & buckets (keep in sync with API) ----------------------
+const FEATURE_KEY_BY_MODE: Record<'threeCards' | 'weighOptions' | 'classic10', string> = {
+  threeCards: 'tarot_threeCards',
+  weighOptions: 'tarot_weigh',
+  classic10: 'tarot_ten',
+};
+
+function buildBuckets(mode: 'threeCards' | 'weighOptions' | 'classic10') {
+  const primary = FEATURE_KEY_BY_MODE[mode];
+  // try most specific first, then generic ones
+  const seq = [primary, 'tarot', 'global'];
+  // dedupe while preserving order
+  return Array.from(new Set(seq));
+}
+
 type CreditsMe =
   | { ok: true; balance: number }
   | { ok: true; credits: { balance: number } }
@@ -181,15 +196,21 @@ export default function TarotReadingPage() {
   }, [role, clientId]);
 
   function canSubmit(): boolean {
+    // แอดมินต้องเลือกลูกดวงก่อน
+    if (role === 'admin' && !clientId) return false;
+
     if (readingType === '3cards') return topic.trim().length > 0;
     if (readingType === 'weigh') return options.map(o => o.trim()).filter(Boolean).length >= 2;
-    return true;
-    // 'celtic' ไม่ต้องกรอกอะไรเพิ่ม
+    return true; // 'celtic' ไม่ต้องกรอกอะไรเพิ่ม
   }
 
   // ตรวจเครดิตก่อนเปิด modal หรือเรียก API จริง (helper)
   const checkCreditBeforeOpen = useCallback(async (): Promise<number> => {
     try {
+      // ถ้ายังไม่เคยโหลด ให้โหลดก่อน 1 ครั้ง
+      if (credits === null) {
+        await loadCredits(clientId ?? undefined);
+      }
       if (role === 'admin' && clientId) {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
@@ -230,7 +251,7 @@ export default function TarotReadingPage() {
     } catch {
       return 0;
     }
-  }, [role, clientId]);
+  }, [role, clientId, credits, loadCredits]);
 
   // --- เปิดไพ่ + บันทึกผ่าน API Route ---
   async function handleDraw() {
@@ -239,20 +260,24 @@ export default function TarotReadingPage() {
       readingType === '3cards' ? TAROT_COST.threeCards :
       readingType === 'weigh'   ? TAROT_COST.weighOptions :
                                   TAROT_COST.classic10;
-    const featureKey =
-      readingType === '3cards' ? 'tarot_threeCards' :
-      readingType === 'weigh'   ? 'tarot_weigh' :
-                                  'tarot_ten';
-    const modeStr =
+
+    // unify mode/featureKey/buckets
+    const modeStr: 'threeCards' | 'weighOptions' | 'classic10' =
       readingType === '3cards' ? 'threeCards' :
       readingType === 'weigh'   ? 'weighOptions' :
                                   'classic10';
+    const featureKey = FEATURE_KEY_BY_MODE[modeStr];
+    const bucketsToTry = buildBuckets(modeStr);
+
     let available = typeof credits === 'number' ? credits : null;
     if (available === null) {
       available = await checkCreditBeforeOpen();
       // sync state เผื่อที่หัวโชว์เป็น '—'
       if (typeof available === 'number') setCredits(available);
     }
+    // sync อีกครั้งกันกรณีหัวเว็บกับเพจไม่ตรง
+    await loadCredits(clientId ?? undefined);
+    available = typeof credits === 'number' ? credits : available;
     if ((available ?? 0) < cost) {
       alert('เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ');
       setShowConfirm(false);
@@ -261,12 +286,12 @@ export default function TarotReadingPage() {
 
     let apiPayload: any = {};
     if (readingType === '3cards') {
-      apiPayload = { mode: modeStr, question: topic.trim(), featureKey, cost };
+      apiPayload = { question: topic.trim() };
     } else if (readingType === 'weigh') {
       const opts = options.map(o => o.trim()).filter(Boolean).slice(0, 3);
-      apiPayload = { mode: modeStr, options: opts, featureKey, cost };
+      apiPayload = { options: opts };
     } else {
-      apiPayload = { mode: modeStr, featureKey, cost };
+      apiPayload = {};
     }
     // ✅ ถ้าเป็นแอดมินและเลือกลูกดวงอยู่ ให้ส่ง user_id ไปใน payload ด้วย
     // เพื่อเป็น fallback กรณี header ถูกตัดทิ้งระหว่างทาง (เช่นผ่าน proxy)
@@ -276,6 +301,15 @@ export default function TarotReadingPage() {
       apiPayload.client_id = clientId;         // some routes expect client_id
       apiPayload.targetClientId = clientId;    // or targetClientId
     }
+    // append common fields
+    apiPayload = {
+      ...apiPayload,
+      featureKey,
+      cost,
+      mode: modeStr,
+      primaryBucket: featureKey,
+      bucketsToTry,
+    };
 
     // Build headers for tarot API: always send credentials and (if admin) the target user
     const hdrs = new Headers({ 'Content-Type': 'application/json' });
@@ -296,6 +330,8 @@ export default function TarotReadingPage() {
       hdrs.set('X-DDT-Feature-Key', featureKey);
       hdrs.set('x-ddt-mode', modeStr);
       hdrs.set('x-ddt-cost', String(cost));
+      hdrs.set('x-ddt-buckets', JSON.stringify(bucketsToTry));
+      hdrs.set('x-ddt-primary-bucket', featureKey);
     } catch {}
 
     setIsDrawing(true);
@@ -484,7 +520,7 @@ export default function TarotReadingPage() {
     const onRefresh = () => loadCredits(clientId ?? undefined);
     window.addEventListener('credits:refresh', onRefresh);
     return () => window.removeEventListener('credits:refresh', onRefresh);
-  }, [clientId, loadCredits]);
+  }, [clientId, role, loadCredits]);
 
   return (
     <PermissionGate requirePerms={['tarot']}>
@@ -493,7 +529,7 @@ export default function TarotReadingPage() {
           <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
           <div className="flex items-center gap-2 text-sm">
             <span className="rounded-full border px-3 py-1 bg-white">
-              เครดิตคงเหลือ: {credits ?? '—'}
+              เครดิตคงเหลือ: {role === 'admin' && !clientId ? '—' : (credits ?? '—')}
             </span>
             <span className="rounded-full border px-3 py-1 bg-slate-50">
               ใช้ต่อครั้ง: {
@@ -611,7 +647,11 @@ export default function TarotReadingPage() {
           <button
             className="px-4 py-2 rounded-md bg-indigo-600 text-white disabled:opacity-50"
             disabled={!canSubmit()}
-            onClick={() => setShowConfirm(true)}
+            onClick={async () => {
+              // พยายาม sync เครดิตก่อนเปิด modal
+              await loadCredits(clientId ?? undefined);
+              setShowConfirm(true);
+            }}
           >
             ดูดวง
           </button>

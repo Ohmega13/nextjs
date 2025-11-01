@@ -18,63 +18,74 @@ const USAGE_TABLE  = process.env.NEXT_PUBLIC_CREDITS_USAGE_TABLE  || "credits_us
  * The caller can perform actual deduction later once flow is confirmed.
  */
 async function tryDeductViaBalanceView(opts: {
-  reader: SupabaseClient;      // supabase or service-role client for SELECT
+  reader: SupabaseClient;
   writer: SupabaseClient;      // kept for compatibility (not used in check-only)
   targetUserId: string;
-  bucket: string;              // "tarot", "palm", etc.
+  bucket: string;
   featureKey: string;
   cost: number;
-  createdBy: string;           // who triggers spend
+  createdBy: string;
+  bucketsToTry?: string[];     // NEW: fallback order to aggregate
 }): Promise<{ ok: boolean; remaining?: number; reason?: string; mode?: "check_only" | "view_not_found" }> {
-  const { reader, targetUserId, bucket, cost } = opts;
+  const { reader, targetUserId, bucket, cost, bucketsToTry } = opts;
 
-  // First attempt: filter by user_id + bucket (if the column exists)
-  let sel = await reader
-    .from(BALANCE_VIEW)
-    .select("balance")
+  const wantedBuckets = (bucketsToTry && bucketsToTry.length)
+    ? bucketsToTry
+    : [bucket];
+
+  // Helper to coerce row balance
+  const numVal = (row: any) =>
+    Number(
+      row?.balance ??
+      row?.carry_balance ??
+      row?.credit ??
+      row?.credits ??
+      row?.amount ??
+      row?.remaining ??
+      0
+    );
+
+  // First attempt: by user + buckets (if `bucket` column exists)
+  let q = reader.from(BALANCE_VIEW)
+    .select("bucket,balance,carry_balance,credit,credits,amount,remaining")
     .eq("user_id", targetUserId as any)
-    .eq("bucket", bucket as any)
-    .maybeSingle();
+    .in("bucket", wantedBuckets as any);
 
-  // If the view is missing entirely -> let caller fallback to table method
+  let sel = await q;
   if (sel?.error?.code === "42P01") {
+    // view not found
     return { ok: false, reason: "view_not_found", mode: "view_not_found" };
   }
-
-  // If the column "bucket" doesn't exist, retry by user_id only
-  if (sel?.error?.code === "42703" /* undefined_column */) {
+  if (sel?.error?.code === "42703") {
+    // `bucket` column not found; retry without it
     sel = await reader
       .from(BALANCE_VIEW)
-      .select("balance")
-      .eq("user_id", targetUserId as any)
-      .maybeSingle();
+      .select("balance,carry_balance,credit,credits,amount,remaining")
+      .eq("user_id", targetUserId as any);
   }
 
-  // If still error -> bubble up as a non-OK with reason
   if (sel.error) {
     return { ok: false, reason: sel.error.message };
   }
 
-  // If no row matched with the given bucket, retry by user_id only (some setups keep single balance per user)
-  if (!sel.data) {
+  // If no rows came back (e.g., different bucket naming), retry by user only
+  if (!sel.data || sel.data.length === 0) {
     const retry = await reader
       .from(BALANCE_VIEW)
-      .select("balance")
-      .eq("user_id", targetUserId as any)
-      .maybeSingle();
+      .select("balance,carry_balance,credit,credits,amount,remaining")
+      .eq("user_id", targetUserId as any);
     if (!retry.error && retry.data) {
       sel = retry;
     }
   }
 
-  const current = Number(sel.data?.balance ?? 0);
-  if (!Number.isFinite(current) || current < cost) {
+  const total = (sel.data ?? []).reduce((s: number, r: any) => s + (Number.isFinite(numVal(r)) ? numVal(r) : 0), 0);
+
+  if (!Number.isFinite(total) || total < cost) {
     return { ok: false, reason: "insufficient_view_balance" };
   }
 
-  // CHECK-ONLY: Do not write to usage ledger here to avoid RLS-related 402.
-  // Report remaining so UI can proceed.
-  return { ok: true, remaining: current - cost, mode: "check_only" };
+  return { ok: true, remaining: total - cost, mode: "check_only" };
 }
 const getOpenAIKey = () =>
   process.env.OPENAI_API_KEY ||
@@ -561,6 +572,10 @@ export async function POST(req: NextRequest) {
     // choose writer: if admin spending for others and service-role available, write with service-role
     const writerClient = (isAdmin && targetUserId !== user.id && !!serviceClient) ? serviceClient : supabase;
 
+    const bucketsToTry = [featureKey, primaryBucket, "tarot", "global"].filter(
+      (v, i, a) => typeof v === "string" && a.indexOf(v) === i
+    );
+
     const viaView = await tryDeductViaBalanceView({
       reader: serviceClient ?? supabase,
       writer: writerClient,
@@ -569,6 +584,7 @@ export async function POST(req: NextRequest) {
       featureKey,
       cost,
       createdBy: user.id,
+      bucketsToTry, // NEW
     });
 
     // track which path we used for debug
@@ -754,6 +770,7 @@ export async function POST(req: NextRequest) {
               total,
               lastBalanceSeen,
               creditWhere,
+              bucketsToTry, // append to debug
             },
           },
           { status: 402 }
