@@ -480,135 +480,140 @@ export async function POST(req: NextRequest) {
     }
 
 
-    // ----- Multi-bucket credit deduction -----
-    // พยายามตัดจาก bucket ตามลำดับ: feature เฉพาะ -> 'tarot' -> 'general'
-    type BucketKey = typeof featureKey | "tarot" | "general";
-    const bucketsToTry: BucketKey[] = [featureKey, "tarot", "general"];
-    let paidFrom: BucketKey | null = null;
-    let lastBalanceSeen: number | null = null;
+    // ----- Credit deduction (bucket-aware with proper fallbacks) -----
+    type NullableBucket = string | null;
 
-    // helper: อ่านยอดจากตาราง credits (fallback, tries user_id, client_id, email)
-    const readGenericBalance = async () => {
-      // Try user_id
-      {
-        const { data: r } = await creditClient
-          .from("credits")
-          .select("balance, carry_balance, credit")
-          .eq("user_id", targetUserId)
-          .maybeSingle();
-        if (r) {
-          const v = Number(r?.balance ?? r?.carry_balance ?? r?.credit ?? 0);
-          if (Number.isFinite(v)) return v;
-        }
-      }
-      // Try client_id
-      if (creditClientId) {
-        const { data: r } = await creditClient
-          .from("credits")
-          .select("balance, carry_balance, credit")
-          .eq("client_id", creditClientId)
-          .maybeSingle();
-        if (r) {
-          const v = Number(r?.balance ?? r?.carry_balance ?? r?.credit ?? 0);
-          if (Number.isFinite(v)) return v;
-        }
-      }
-      // Try email
-      if (creditEmail) {
-        const { data: r } = await creditClient
-          .from("credits")
-          .select("balance, carry_balance, credit")
-          .eq("email", creditEmail)
-          .maybeSingle();
-        if (r) {
-          const v = Number(r?.balance ?? r?.carry_balance ?? r?.credit ?? 0);
-          if (Number.isFinite(v)) return v;
-        }
-      }
-      return 0;
-    };
-
-    // helper: อัปเดตยอด generic เมื่อ RPC ใช้ไม่ได้ (tries user_id, client_id, email)
-    const deductGeneric = async (amount: number) => {
-      // Internal helper to update a located row using a specific where-clause
-      const updateWith = async (where: { kind: "user_id" | "client_id" | "email"; value: string }) => {
-        const { data: row } = await creditClient
-          .from("credits")
-          .select("balance, carry_balance, credit")
-          .eq(where.kind, where.value)
-          .maybeSingle();
-        const current = Number(row?.balance ?? row?.carry_balance ?? row?.credit ?? 0);
-        lastBalanceSeen = current;
-        if (!Number.isFinite(current) || current < amount) return false;
-
-        const newVal = Math.max(0, current - amount);
-        // Prefer updating the first existing numeric column among balance/credit/carry_balance
-        const preferCols = ["balance", "credit", "carry_balance"];
-        const targetCol = preferCols.find((c) => row && Object.prototype.hasOwnProperty.call(row, c)) || "balance";
-
-        const { error: updErr } = await creditClient
-          .from("credits")
-          .update({ [targetCol]: newVal })
-          .eq(where.kind, where.value);
-        return !updErr;
-      };
-
-      // Try by user_id first
-      if (await updateWith({ kind: "user_id", value: targetUserId })) return true;
-
-      // Then by client_id
-      if (creditClientId && await updateWith({ kind: "client_id", value: creditClientId })) return true;
-
-      // Then by email
-      if (creditEmail && await updateWith({ kind: "email", value: creditEmail })) return true;
-
-      return false;
-    };
-
-    // ลองตัดเครดิตด้วย RPC ทีละ bucket
-    for (const bucket of bucketsToTry) {
-      const { data: rpcOk, error: rpcErr } = await creditClient.rpc("sp_use_credit", {
-        p_user_id: targetUserId,
-        p_feature: bucket,
-        p_cost: cost,
-        p_reading: null,
+    const buildPriority = (fk: string): NullableBucket[] => {
+      const family = fk.split("_")[0];
+      const arr = [fk, family, "tarot", "any", "*", null] as NullableBucket[];
+      // de-duplicate while preserving order
+      const seen = new Set<string>();
+      return arr.filter((v) => {
+        const key = v === null ? "__NULL__" : String(v);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
       });
+    };
 
-      if (!rpcErr && rpcOk) {
-        paidFrom = bucket;
-        break;
+    const bucketToParam = (b: NullableBucket) =>
+      b === null || b === "any" || b === "*" ? null : b;
+
+    const numVal = (row: any) =>
+      Number(row?.balance ?? row?.carry_balance ?? row?.credit ?? 0);
+
+    let paidFrom: NullableBucket = null;
+    let lastBalanceSeen: number | null = null;
+    let creditWhere:
+      | { kind: "user_id" | "client_id" | "email"; value: string }
+      | null = null;
+
+    // 1) Read all credit rows for the target by user_id -> client_id -> email
+    let rows: any[] = [];
+    {
+      const byUser = await creditClient
+        .from("credits")
+        .select("feature_key,balance,carry_balance,credit")
+        .eq("user_id", targetUserId);
+      if (!byUser.error && byUser.data && byUser.data.length) {
+        rows = byUser.data;
+        creditWhere = { kind: "user_id", value: targetUserId };
+      } else if (creditClientId) {
+        const byClient = await creditClient
+          .from("credits")
+          .select("feature_key,balance,carry_balance,credit")
+          .eq("client_id", creditClientId);
+        if (!byClient.error && byClient.data && byClient.data.length) {
+          rows = byClient.data;
+          creditWhere = { kind: "client_id", value: creditClientId };
+        }
       }
-
-      // ถ้า RPC ล้มเหลว ให้ลองวิธี generic เฉพาะกรณี bucket เป็น 'tarot' หรือ 'general'
-      if (bucket === "tarot" || bucket === "general") {
-        const ok = await deductGeneric(cost);
-        if (ok) {
-          paidFrom = bucket;
-          break;
+      if (rows.length === 0 && creditEmail) {
+        const byEmail = await creditClient
+          .from("credits")
+          .select("feature_key,balance,carry_balance,credit")
+          .eq("email", creditEmail);
+        if (!byEmail.error && byEmail.data && byEmail.data.length) {
+          rows = byEmail.data;
+          creditWhere = { kind: "email", value: creditEmail };
         }
       }
     }
 
-    // ยังตัดไม่ได้ => ตรวจยอดล่าสุดแล้วตอบ 402
-    if (!paidFrom) {
-      // พยายามอ่านยอดเพื่อใส่ debug
-      if (lastBalanceSeen === null) {
-        lastBalanceSeen = await readGenericBalance();
+    // 2) Choose the first bucket with enough balance
+    const priority = buildPriority(featureKey);
+    const pick: NullableBucket =
+      priority.find((b) => {
+        const matchKey = (fk: any) => (b === null ? fk == null : fk === b);
+        const row = rows.find((r) => matchKey(r.feature_key));
+        return row && numVal(row) >= cost;
+      }) ?? null;
+
+    if (pick !== null) {
+      // 3) Try RPC first (translate "any/*/null" into NULL)
+      const rpcBucket = bucketToParam(pick);
+      const { data: ok, error: rpcErr } = await creditClient.rpc("sp_use_credit", {
+        p_user_id: targetUserId,
+        p_feature: rpcBucket,
+        p_cost: cost,
+        p_reading: null,
+      });
+
+      if (!rpcErr && ok) {
+        paidFrom = pick;
+      } else {
+        // 4) Manual update on the specific row we picked
+        const { data: found } = await creditClient
+          .from("credits")
+          .select("id,balance,carry_balance,credit,feature_key")
+          .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId)
+          [pick === null ? "is" : "eq"]("feature_key", pick === null ? null : pick)
+          .maybeSingle();
+
+        const current = numVal(found);
+        lastBalanceSeen = current;
+
+        if (Number.isFinite(current) && current >= cost) {
+          const newVal = Math.max(0, current - cost);
+          const targetCol =
+            "balance" in (found ?? {})
+              ? "balance"
+              : "credit" in (found ?? {})
+              ? "credit"
+              : "carry_balance";
+          const upd = creditClient
+            .from("credits")
+            .update({ [targetCol]: newVal })
+            .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId);
+          (pick === null ? (upd as any).is("feature_key", null) : upd.eq("feature_key", pick));
+          const { error: updErr } = await upd;
+          if (!updErr) paidFrom = pick;
+        }
       }
+    } else {
+      // Could not find any bucket with sufficient balance; remember the latest seen
+      const { data: r } = await creditClient
+        .from("credits")
+        .select("balance,carry_balance,credit")
+        .eq(creditWhere?.kind ?? "user_id", creditWhere?.value ?? targetUserId)
+        .maybeSingle();
+      lastBalanceSeen = numVal(r);
+    }
+
+    if (!paidFrom) {
       return NextResponse.json(
         {
           ok: false,
           error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
           debug: {
-            targetRaw,
             targetUserId,
-            mappedFromClient,
-            currentBalance: lastBalanceSeen ?? 0,
-            cost,
             featureKey,
-            triedBuckets: bucketsToTry,
-            identifiersTried: { user_id: targetUserId, client_id: creditClientId, email: creditEmail }
-          }
+            cost,
+            triedPriority: priority,
+            rows,
+            lastBalanceSeen,
+            creditWhere,
+          },
         },
         { status: 402 }
       );
