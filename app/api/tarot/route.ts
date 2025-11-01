@@ -16,6 +16,7 @@ const USAGE_TABLE  = process.env.NEXT_PUBLIC_CREDITS_USAGE_TABLE  || "credits_us
  * Try to validate credit using balance VIEW (same source as UI).
  * NOTE: This helper is now **check-only** to avoid 402 due to RLS/ledger insert.
  * The caller can perform actual deduction later once flow is confirmed.
+ * Robust to schema differences (missing bucket, various user id columns).
  */
 async function tryDeductViaBalanceView(opts: {
   reader: SupabaseClient;
@@ -42,44 +43,79 @@ async function tryDeductViaBalanceView(opts: {
       row?.credits ??
       row?.amount ??
       row?.remaining ??
+      row?.remaining_total ??
       0
     );
 
-  // First attempt: by user + buckets (if `bucket` column exists)
-  let q = reader.from(BALANCE_VIEW)
-    .select("bucket,balance,carry_balance,credit,credits,amount,remaining")
-    .eq("user_id", targetUserId as any)
-    .in("bucket", wantedBuckets as any);
+  // Possible user-id columns on the VIEW
+  const uidCols = ["user_id", "owner_id", "subject_user_id", "subject_id", "uid"] as const;
 
-  let sel = await q;
-  if (sel?.error?.code === "42P01") {
-    // view not found
+  // Try a sequence of queries, progressively relaxing constraints and switching user id columns.
+  const tryQueries = async (): Promise<{ data: any[]; error?: { code?: string; message?: string } }> => {
+    // 1) With bucket + user_id
+    for (const uidCol of uidCols) {
+      try {
+        const res = await reader
+          .from(BALANCE_VIEW)
+          .select(`bucket,balance,carry_balance,credit,credits,amount,remaining,remaining_total,${uidCol}`)
+          .eq(uidCol as any, targetUserId as any)
+          .in("bucket", wantedBuckets as any);
+        if (!res.error) return { data: res.data ?? [] };
+        // If bucket missing, we'll handle below; otherwise continue trying other uid columns
+        if (res.error?.code !== "42703") continue;
+      } catch {}
+    }
+
+    // 2) Without bucket filter (in case `bucket` column doesn't exist)
+    for (const uidCol of uidCols) {
+      try {
+        const res = await reader
+          .from(BALANCE_VIEW)
+          .select(`balance,carry_balance,credit,credits,amount,remaining,remaining_total,${uidCol}`)
+          .eq(uidCol as any, targetUserId as any);
+        if (!res.error) return { data: res.data ?? [] };
+        if (res.error?.code !== "42703") continue;
+      } catch {}
+    }
+
+    // 3) Last resort: fetch all rows and filter in memory by whatever uid column exists
+    try {
+      const res = await reader
+        .from(BALANCE_VIEW)
+        .select("bucket,balance,carry_balance,credit,credits,amount,remaining,remaining_total,user_id,owner_id,subject_user_id,subject_id,uid");
+      if (!res.error && res.data) {
+        const rows = (res.data as any[]).filter(r =>
+          uidCols.some(c => (r as any)[c] === targetUserId)
+        );
+        return { data: rows };
+      }
+      return { data: [], error: res.error as any };
+    } catch (e: any) {
+      return { data: [], error: { code: e?.code, message: String(e?.message ?? e) } };
+    }
+  };
+
+  // If the view itself doesn't exist
+  try {
+    const probe = await reader.from(BALANCE_VIEW).select("count").limit(1);
+    if (probe?.error?.code === "42P01") {
+      return { ok: false, reason: "view_not_found", mode: "view_not_found" };
+    }
+  } catch {}
+
+  const sel = await tryQueries();
+  if ((sel as any).error && (sel as any).error?.code === "42P01") {
     return { ok: false, reason: "view_not_found", mode: "view_not_found" };
   }
-  if (sel?.error?.code === "42703") {
-    // `bucket` column not found; retry without it
-    sel = await reader
-      .from(BALANCE_VIEW)
-      .select("balance,carry_balance,credit,credits,amount,remaining")
-      .eq("user_id", targetUserId as any);
+  if ((sel as any).error && (sel as any).error?.message) {
+    // Unknown error reading the view
+    return { ok: false, reason: (sel as any).error.message };
   }
 
-  if (sel.error) {
-    return { ok: false, reason: sel.error.message };
-  }
-
-  // If no rows came back (e.g., different bucket naming), retry by user only
-  if (!sel.data || sel.data.length === 0) {
-    const retry = await reader
-      .from(BALANCE_VIEW)
-      .select("balance,carry_balance,credit,credits,amount,remaining")
-      .eq("user_id", targetUserId as any);
-    if (!retry.error && retry.data) {
-      sel = retry;
-    }
-  }
-
-  const total = (sel.data ?? []).reduce((s: number, r: any) => s + (Number.isFinite(numVal(r)) ? numVal(r) : 0), 0);
+  const total = (sel.data ?? []).reduce((s: number, r: any) => {
+    const v = numVal(r);
+    return s + (Number.isFinite(v) ? v : 0);
+  }, 0);
 
   if (!Number.isFinite(total) || total < cost) {
     return { ok: false, reason: "insufficient_view_balance" };
