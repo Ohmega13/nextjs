@@ -230,12 +230,19 @@ export default function TarotReadingPage() {
       apiPayload = { mode: 'classic10' };
     }
 
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    // Build headers for tarot API: always send credentials and (if admin) the target user
+    const hdrs = new Headers({ 'Content-Type': 'application/json' });
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      if (role === 'admin' && clientId) headers['x-ddt-target-user'] = clientId;
+      if (token) {
+        hdrs.set('Authorization', `Bearer ${token}`);
+      }
+      if (role === 'admin' && clientId) {
+        // ส่งทั้งสองรูปแบบของ header เพื่อกันเคส framework ปรับตัวพิมพ์
+        hdrs.set('x-ddt-target-user', clientId);
+        hdrs.set('X-DDT-Target-User', clientId);
+      }
     } catch {}
 
     setIsDrawing(true);
@@ -243,7 +250,7 @@ export default function TarotReadingPage() {
     try {
       res = await fetch('/api/tarot', {
         method: 'POST',
-        headers,
+        headers: hdrs,
         body: JSON.stringify(apiPayload),
         cache: 'no-store',
         credentials: 'include',
