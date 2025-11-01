@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import PermissionGate from '@/components/PermissionGate';
 import { getProfileDetailsByUserId, type ProfileRow } from '@/lib/profile';
@@ -126,35 +126,37 @@ export default function TarotReadingPage() {
     setOptions(prev => prev.map((x, idx) => (idx === i ? v : x)));
   }
 
-  async function loadCredits(targetUserId?: string) {
+  const loadCredits = useCallback(async (targetUserId?: string) => {
     try {
       // admin + มีลูกดวงที่เลือก → ใช้ endpoint แอดมินตาม user_id
       if (role === 'admin' && (targetUserId || clientId)) {
         const uid = targetUserId || clientId!;
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        const res = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(uid)}`, {
+
+        // Try query param style first
+        let res = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(uid)}`, {
           method: 'GET',
           cache: 'no-store',
           credentials: 'include',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-        // หากปลายทางปฏิเสธจากการ strip query (บาง proxy) ให้ลองส่ง header แทน
+
+        // fallback if proxy strips query or auth header is required
         if (!res.ok) {
-          const res2 = await fetch('/api/admin/credits', {
+          res = await fetch('/api/admin/credits', {
             method: 'GET',
             cache: 'no-store',
             credentials: 'include',
-            headers: token
-              ? { Authorization: `Bearer ${token}`, 'x-ddt-target-user': uid, 'X-DDT-Target-User': uid }
-              : { 'x-ddt-target-user': uid, 'X-DDT-Target-User': uid },
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              'x-ddt-target-user': uid,
+              'X-DDT-Target-User': uid,
+            },
           });
-          if (!res2.ok) { setCredits(0); return; }
-          const j2: any = await res2.json();
-          const v2 = Number(j2.balance ?? j2.carry_balance ?? j2.credit ?? j2?.credits?.balance ?? 0);
-          setCredits(Number.isFinite(v2) ? v2 : 0);
-          return;
         }
+
+        if (!res.ok) { setCredits(0); return; }
         const j: any = await res.json();
         const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
         setCredits(Number.isFinite(v) ? v : 0);
@@ -176,7 +178,7 @@ export default function TarotReadingPage() {
     } catch {
       setCredits(0);
     }
-  }
+  }, [role, clientId]);
 
   function canSubmit(): boolean {
     if (readingType === '3cards') return topic.trim().length > 0;
@@ -186,31 +188,32 @@ export default function TarotReadingPage() {
   }
 
   // ตรวจเครดิตก่อนเปิด modal หรือเรียก API จริง (helper)
-  async function checkCreditBeforeOpen(): Promise<number> {
+  const checkCreditBeforeOpen = useCallback(async (): Promise<number> => {
     try {
       if (role === 'admin' && clientId) {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        const r = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(clientId)}`, {
+
+        let r = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(clientId)}`, {
           method: 'GET',
           cache: 'no-store',
           credentials: 'include',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
+
         if (!r.ok) {
-          const r2 = await fetch('/api/admin/credits', {
+          r = await fetch('/api/admin/credits', {
             method: 'GET',
             cache: 'no-store',
             credentials: 'include',
-            headers: token
-              ? { Authorization: `Bearer ${token}`, 'x-ddt-target-user': clientId, 'X-DDT-Target-User': clientId }
-              : { 'x-ddt-target-user': clientId, 'X-DDT-Target-User': clientId },
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              'x-ddt-target-user': clientId,
+              'X-DDT-Target-User': clientId,
+            },
           });
-          if (!r2.ok) return 0;
-          const j2: any = await r2.json();
-          const v2 = Number(j2.balance ?? j2.carry_balance ?? j2.credit ?? j2?.credits?.balance ?? 0);
-          return Number.isFinite(v2) ? v2 : 0;
         }
+        if (!r.ok) return 0;
         const j: any = await r.json();
         const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
         return Number.isFinite(v) ? v : 0;
@@ -227,7 +230,7 @@ export default function TarotReadingPage() {
     } catch {
       return 0;
     }
-  }
+  }, [role, clientId]);
 
   // --- เปิดไพ่ + บันทึกผ่าน API Route ---
   async function handleDraw() {
@@ -240,6 +243,10 @@ export default function TarotReadingPage() {
       readingType === '3cards' ? 'tarot_threeCards' :
       readingType === 'weigh'   ? 'tarot_weigh' :
                                   'tarot_ten';
+    const modeStr =
+      readingType === '3cards' ? 'threeCards' :
+      readingType === 'weigh'   ? 'weighOptions' :
+                                  'classic10';
     let available = typeof credits === 'number' ? credits : null;
     if (available === null) {
       available = await checkCreditBeforeOpen();
@@ -254,12 +261,12 @@ export default function TarotReadingPage() {
 
     let apiPayload: any = {};
     if (readingType === '3cards') {
-      apiPayload = { mode: 'threeCards', question: topic.trim(), featureKey, cost };
+      apiPayload = { mode: modeStr, question: topic.trim(), featureKey, cost };
     } else if (readingType === 'weigh') {
       const opts = options.map(o => o.trim()).filter(Boolean).slice(0, 3);
-      apiPayload = { mode: 'weighOptions', options: opts, featureKey, cost };
+      apiPayload = { mode: modeStr, options: opts, featureKey, cost };
     } else {
-      apiPayload = { mode: 'classic10', featureKey, cost };
+      apiPayload = { mode: modeStr, featureKey, cost };
     }
     // ✅ ถ้าเป็นแอดมินและเลือกลูกดวงอยู่ ให้ส่ง user_id ไปใน payload ด้วย
     // เพื่อเป็น fallback กรณี header ถูกตัดทิ้งระหว่างทาง (เช่นผ่าน proxy)
@@ -285,6 +292,10 @@ export default function TarotReadingPage() {
         hdrs.set('x-ddt-target-client', clientId);   // some APIs use client id
         hdrs.set('X-DDT-Target-Client', clientId);
       }
+      hdrs.set('x-ddt-feature-key', featureKey);
+      hdrs.set('X-DDT-Feature-Key', featureKey);
+      hdrs.set('x-ddt-mode', modeStr);
+      hdrs.set('x-ddt-cost', String(cost));
     } catch {}
 
     setIsDrawing(true);
@@ -322,6 +333,10 @@ export default function TarotReadingPage() {
       const msg = isNoCredit
         ? 'เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ'
         : (data?.error || `เกิดข้อผิดพลาด (${res.status})`);
+
+      // ซิงก์ยอดล่าสุดจากเซิร์ฟเวอร์ (กันหัวเว็บ/เพจไม่ตรงกัน)
+      loadCredits(clientId ?? undefined).catch(() => {});
+      window.dispatchEvent(new CustomEvent('credits:refresh'));
 
       // แสดงข้อความชัดเจนเมื่อเครดิตไม่พอ และไม่เปิด modal แสดงผล
       alert(msg);
@@ -465,12 +480,11 @@ export default function TarotReadingPage() {
   }, [role, clientId]);
 
   useEffect(() => {
-    // โหลดเครดิตตามบทบาท/ลูกดวงที่เลือก
     loadCredits(clientId ?? undefined);
     const onRefresh = () => loadCredits(clientId ?? undefined);
     window.addEventListener('credits:refresh', onRefresh);
     return () => window.removeEventListener('credits:refresh', onRefresh);
-  }, [role, clientId]);
+  }, [clientId, loadCredits]);
 
   return (
     <PermissionGate requirePerms={['tarot']}>
