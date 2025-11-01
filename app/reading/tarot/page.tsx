@@ -208,8 +208,13 @@ export default function TarotReadingPage() {
       readingType === '3cards' ? TAROT_COST.threeCards :
       readingType === 'weigh'   ? TAROT_COST.weighOptions :
                                   TAROT_COST.classic10;
-    const currentCredit = await checkCreditBeforeOpen();
-    if (currentCredit < cost) {
+    let available = typeof credits === 'number' ? credits : null;
+    if (available === null) {
+      available = await checkCreditBeforeOpen();
+      // sync state เผื่อที่หัวโชว์เป็น '—'
+      if (typeof available === 'number') setCredits(available);
+    }
+    if ((available ?? 0) < cost) {
       alert('เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ');
       setShowConfirm(false);
       return;
