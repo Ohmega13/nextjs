@@ -143,53 +143,31 @@ export default function TarotReadingPage() {
 
   const loadCredits = useCallback(async (targetUserId?: string) => {
     try {
-      // admin + มีลูกดวงที่เลือก → ใช้ endpoint แอดมินตาม user_id
-      if (role === 'admin' && (targetUserId || clientId)) {
-        const uid = targetUserId || clientId!;
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
+      // unified credits fetch via /api/credits/me
+      const uid = (role === 'admin' && (targetUserId || clientId)) ? (targetUserId || clientId!) : '';
+      const url = `/api/credits/me${uid ? `?user_id=${encodeURIComponent(uid)}` : ''}`;
 
-        // Try query param style first
-        let res = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(uid)}`, {
-          method: 'GET',
-          cache: 'no-store',
-          credentials: 'include',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-
-        // fallback if proxy strips query or auth header is required
-        if (!res.ok) {
-          res = await fetch('/api/admin/credits', {
-            method: 'GET',
-            cache: 'no-store',
-            credentials: 'include',
-            headers: {
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              'x-ddt-target-user': uid,
-              'X-DDT-Target-User': uid,
-            },
-          });
-        }
-
-        if (!res.ok) { setCredits(0); return; }
-        const j: any = await res.json();
-        const v = Number(j.balance ?? j.carry_balance ?? j.credit ?? j?.credits?.balance ?? 0);
-        setCredits(Number.isFinite(v) ? v : 0);
-        return;
-      }
-
-      // member (หรือ admin ที่ยังไม่ได้เลือกลูกดวง) → ใช้ของตัวเอง
-      const res = await fetch('/api/credits/me', {
+      const res = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
         credentials: 'include',
+        headers: uid ? { 'x-ddt-target-user': uid } : {},
       });
+
       if (!res.ok) { setCredits(0); return; }
+
       const data: any = await res.json();
-      const v = Number(
-        data.balance ?? data.carry_balance ?? data.credit ?? data.credits?.balance ?? 0
+      const nextBal = Number(
+        data?.balance ??
+        data?.remaining_total ??
+        data?.remaining ??
+        data?.carry_balance ??
+        data?.credit ??
+        data?.credits?.balance ??
+        0
       );
-      setCredits(Number.isFinite(v) ? v : 0);
+
+      setCredits(Number.isFinite(nextBal) ? nextBal : 0);
     } catch {
       setCredits(0);
     }

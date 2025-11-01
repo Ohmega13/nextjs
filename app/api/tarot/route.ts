@@ -878,7 +878,15 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Success via direct table update
       spentVia = "table";
+      creditDebug = {
+        ok: true,
+        path: "table",
+        deducted: cost,
+        newBalance: Number((acct as any).balance ?? 0),
+        ruleKey: normalizeRuleKey(featureKey),
+      };
     }
 
     // Best-effort adjust legacy `credits` table so UI using that table stays in sync
