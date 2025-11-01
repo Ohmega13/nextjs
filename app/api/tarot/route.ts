@@ -293,6 +293,27 @@ function looksLikePrompt(text: string) {
   return false;
 }
 
+// --- ID utilities ---
+function isUUIDLike(id: string | null | undefined) {
+  if (!id || typeof id !== 'string') return false;
+  // fast heuristic for UUID v4-ish
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
+async function resolveTargetUserId(supabase: any, id: string) {
+  // If the given id matches a client.id, map it to the owning user_id.
+  // Otherwise assume it's already a user_id.
+  try {
+    const { data: c } = await supabase
+      .from('clients')
+      .select('user_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (c?.user_id) return c.user_id as string;
+  } catch {}
+  return id;
+}
+
 // --- Supabase client helper (Next 15-safe) ---
 async function getSupabase(accessToken?: string) {
   const cookieStore = await cookies();
@@ -374,6 +395,10 @@ export async function POST(req: NextRequest) {
       "x-ddt-targetUser",
       "x-target-user-id",
       "x-target-user",
+      "x-ddt-target-client",
+      "X-DDT-Target-Client",
+      "x-target-client-id",
+      "x-target-client"
     ];
     let targetHeader = "";
     for (const k of headerAliases) {
@@ -383,9 +408,14 @@ export async function POST(req: NextRequest) {
     const isAdmin = meProfile?.role === "admin";
     __debug.isAdmin = isAdmin;
     const targetBody = body?.targetUserId || body?.target_user_id;
-    const targetUserId = isAdmin && (targetHeader || targetBody)
-      ? (targetHeader || targetBody)
+    const targetClientBody = body?.targetClientId || body?.target_client_id;
+    let targetRaw = isAdmin && (targetHeader || targetBody || targetClientBody)
+      ? (targetHeader || targetBody || targetClientBody)
       : user.id;
+
+    // If admin passed a client id, map it to the actual user_id
+    const targetUserId = await resolveTargetUserId(supabase, targetRaw);
+    __debug.targetRaw = targetRaw;
     __debug.targetUserId = targetUserId;
 
     // If admin is spending credit on behalf of another user, use service-role to bypass RLS on credits table
@@ -436,7 +466,11 @@ export async function POST(req: NextRequest) {
       // ถ้ายอดน้อยกว่าค่าใช้จ่ายจริง ค่อยตอบ 402
       if (!Number.isFinite(currentBalance) || currentBalance < cost) {
         return NextResponse.json(
-          { ok: false, error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ" },
+          {
+            ok: false,
+            error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
+            debug: { targetUserId, currentBalance, cost, featureKey }
+          },
           { status: 402 }
         );
       }
@@ -698,6 +732,7 @@ export async function POST(req: NextRequest) {
       hasBearer: __debug.hasBearer,
       hasUser: __debug.hasUser,
       isAdmin: __debug.isAdmin,
+      targetRaw: __debug.targetRaw,
       promptLen: __debug.promptLen,
       hasPrompt: __debug.hasPrompt,
       openai: { called: !!__debug.openai, tried: __debug.openai?.tried, reason: __debug.openai?.reason },
