@@ -31,9 +31,14 @@ export default function MembersClient() {
     setLoading(true);
     setErr(null);
 
+    // ใช้ Bearer token สำหรับ endpoint admin เพื่อเลี่ยง 401
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token ?? '';
+
     const res = await fetch('/api/admin/credits', {
       method: 'GET',
       cache: 'no-store',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
     if (!res.ok) {
@@ -57,9 +62,10 @@ export default function MembersClient() {
       const status = p.status ?? item.status ?? 'active';
       const plan = a.plan ?? item.plan ?? 'prepaid';
 
-      const credit_balance = Number(
-        a.carry_balance ?? a.balance ?? item.carry_balance ?? item.balance ?? 0
-      ) || 0;
+      const credit_balance =
+        Number(
+          a.carry_balance ?? a.balance ?? item.carry_balance ?? item.balance ?? 0
+        ) || 0;
 
       return {
         user_id,

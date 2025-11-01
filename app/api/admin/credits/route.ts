@@ -20,6 +20,11 @@ async function getSupabaseServer() {
   if (xfHost) mergedHeaders["x-forwarded-host"] = xfHost;
   if (xfProto) mergedHeaders["x-forwarded-proto"] = xfProto;
 
+  // Forward Bearer token (if present) so Supabase can resolve user from Authorization header
+  const authz =
+    headerStore.get("authorization") || headerStore.get("Authorization");
+  if (authz) mergedHeaders["authorization"] = authz;
+
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
