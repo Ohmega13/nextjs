@@ -17,6 +17,10 @@ function getServerSupabase() {
     if (xfHost) mergedHeaders["x-forwarded-host"] = xfHost;
     if (xfProto) mergedHeaders["x-forwarded-proto"] = xfProto;
 
+    // Forward Authorization header (if any) so Supabase can resolve session from Bearer token as well
+    const authz = headerStore.get("authorization") || headerStore.get("Authorization");
+    if (authz) mergedHeaders["authorization"] = authz;
+
     return createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -97,7 +101,11 @@ export async function GET() {
     return Response.json(
       {
         ok: true,
+        // primary
         balance: finalBalance,
+        // aliases for older clients/components
+        carry_balance: finalBalance,
+        credit: finalBalance,
       },
       {
         status: 200,
