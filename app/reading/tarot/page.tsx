@@ -431,7 +431,22 @@ export default function TarotReadingPage() {
       ...prev
     ]);
 
-    // รีเฟรชยอดเครดิตในเพจนี้ด้วย
+    // อัปเดตเครดิตแบบ Optimistic: ใช้ค่าจาก debug.creditDebug.newBalance ถ้ามี
+    try {
+      const dbg = data?.debug?.creditDebug;
+      const newBal = Number(dbg?.newBalance);
+      if (Number.isFinite(newBal)) {
+        setCredits(newBal);
+      } else {
+        // ถ้าเซิร์ฟเวอร์ไม่ได้ส่งยอดใหม่มา ให้หักตาม cost ชั่วคราว แล้วค่อยซิงก์จริงทีหลัง
+        setCredits((prev) => {
+          const cur = Number(prev ?? 0);
+          return Number.isFinite(cur) ? Math.max(0, cur - cost) : cur;
+        });
+      }
+    } catch {}
+
+    // รีเฟรชยอดเครดิตในเพจนี้ด้วย (ซิงก์จากเซิร์ฟเวอร์ให้ตรง 100%)
     loadCredits(clientId ?? undefined).catch(() => {});
     // รีเฟรชยอดเครดิตบนหัวเว็บ (ถ้ามี listener ฝั่ง TopNav)
     try {

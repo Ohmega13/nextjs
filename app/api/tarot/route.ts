@@ -261,6 +261,54 @@ async function deductCredits(params: {
 
   return { ok: true as const, deducted: cost, newBalance, ruleKey };
 }
+
+/**
+ * Optional best-effort adjustment on legacy `credits` table.
+ * Some environments track remaining in `credits.remaining_total` or `credits.remaining`.
+ * This helper will try to decrement the most recent active row that matches the bucket.
+ * It never throws; failures are returned for debug only.
+ */
+async function adjustLegacyCreditsTable(params: {
+  client: any; // service client when admin-on-behalf, otherwise session supabase
+  userId: string;
+  cost: number;
+  bucketsToTry: string[];
+}) {
+  const { client, userId, cost, bucketsToTry } = params;
+
+  // Pick the most specific bucket we can find
+  let bucketToUse: string | null = null;
+  try {
+    const res = await client
+      .from("credits")
+      .select("id,bucket,remaining_total,remaining,amount,created_at")
+      .eq("user_id", userId)
+      .in("bucket", bucketsToTry as any)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (res?.data && res.data.length) {
+      const row = res.data[0];
+      bucketToUse = row.bucket ?? null;
+
+      // prefer remaining_total, then remaining
+      const currentTotal = Number(row.remaining_total ?? row.remaining ?? 0);
+      if (Number.isFinite(currentTotal) && currentTotal >= cost) {
+        const newTotal = Math.max(0, currentTotal - cost);
+        const upd = await client
+          .from("credits")
+          .update({ remaining_total: newTotal, updated_at: new Date().toISOString() })
+          .eq("id", row.id);
+        return { ok: !upd.error, bucket: bucketToUse, from: currentTotal, to: newTotal, detail: upd.error?.message };
+      }
+      // If we cannot safely reduce, just report state
+      return { ok: false, bucket: bucketToUse, reason: "not_enough_or_not_numeric", from: currentTotal, need: cost };
+    }
+    return { ok: false, reason: "no_row_found" };
+  } catch (e: any) {
+    return { ok: false, reason: "exception", detail: String(e?.message ?? e) };
+  }
+}
 // ---- end helpers ----
 const getOpenAIKey = () =>
   process.env.OPENAI_API_KEY ||
@@ -833,6 +881,17 @@ export async function POST(req: NextRequest) {
       spentVia = "table";
     }
 
+    // Best-effort adjust legacy `credits` table so UI using that table stays in sync
+    let legacyAdjust: any = null;
+    try {
+      legacyAdjust = await adjustLegacyCreditsTable({
+        client: writerClient,
+        userId: targetUserId,
+        cost,
+        bucketsToTry,
+      });
+    } catch { legacyAdjust = { ok: false, reason: "adjust_legacy_exception" }; }
+
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
       .from("profiles")
@@ -1065,6 +1124,7 @@ export async function POST(req: NextRequest) {
           contentPreview: (contentText || "").slice(0, 120),
           spentVia,
           creditDebug,
+          legacyAdjust,
         },
       },
       { status: 200 }
