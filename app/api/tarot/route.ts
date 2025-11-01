@@ -1195,85 +1195,125 @@ export async function POST(req: NextRequest) {
     __debug.promptPreview = (prompt || '').slice(0, 160);
     // --- compute latest remaining after deduction (authoritative) ---
     let remainingNow: number | null = null;
-    // prefer balances returned from deduction helpers
+    let balanceSource: "credit_accounts" | "balance_view" | "legacy_credits" | "deduction_return" | "unknown" = "unknown";
+
+    // 1) Prefer balances returned from deduction helpers
     if (creditDebug?.ok && typeof creditDebug.newBalance === "number") {
       remainingNow = Number(creditDebug.newBalance);
+      balanceSource = "deduction_return";
     } else if (creditDebug && typeof creditDebug.balance === "number") {
       remainingNow = Number(creditDebug.balance);
-    } else {
-      // Try to reflect the same source the UI uses: the balance VIEW
+      balanceSource = "deduction_return";
+    }
+
+    // 2) Strong primary source: credit_accounts.carry_balance (simple and authoritative)
+    if (remainingNow === null) {
       try {
-        const vres = await (serviceClient ?? supabase)
+        const rNow = await (serviceClient ?? supabase)
+          .from("credit_accounts")
+          .select("carry_balance")
+          .eq("user_id", targetUserId)
+          .maybeSingle();
+        if (!rNow.error) {
+          remainingNow = Number(rNow.data?.carry_balance ?? 0);
+          balanceSource = "credit_accounts";
+        }
+      } catch {}
+    }
+
+    // 3) Secondary: balance VIEW if it exists (sum of remaining/remaining_total or derived)
+    if (remainingNow === null) {
+      try {
+        const probe = await (serviceClient ?? supabase)
           .from(BALANCE_VIEW)
-          .select("remaining_total,remaining,balance,carry_balance,credit,credits,amount")
-          .eq("user_id", targetUserId);
-        if (!vres.error && Array.isArray(vres.data)) {
-          const sum = vres.data.reduce((s: number, r: any) => {
-            const rt = Number(r?.remaining_total);
-            if (Number.isFinite(rt)) return s + Math.max(0, rt);
-            const rr = Number(r?.remaining);
-            if (Number.isFinite(rr)) return s + Math.max(0, rr);
-            const derived =
-              Number(r?.balance ?? 0) +
-              Number(r?.carry_balance ?? 0) +
-              Number(r?.credit ?? 0) +
-              Number(r?.credits ?? 0) -
-              Number(r?.amount ?? 0);
-            return s + (Number.isFinite(derived) ? Math.max(0, derived) : 0);
-          }, 0);
-          if (Number.isFinite(sum)) {
-            remainingNow = sum;
+          .select("count")
+          .limit(1);
+        const viewExists = !(probe as any)?.error || (probe as any)?.error?.code !== "42P01";
+        if (viewExists) {
+          const vres = await (serviceClient ?? supabase)
+            .from(BALANCE_VIEW)
+            .select("remaining_total,remaining,balance,carry_balance,credit,credits,amount")
+            .eq("user_id", targetUserId);
+          if (!vres.error && Array.isArray(vres.data)) {
+            const sum = vres.data.reduce((s: number, r: any) => {
+              const rt = Number(r?.remaining_total);
+              if (Number.isFinite(rt)) return s + Math.max(0, rt);
+              const rr = Number(r?.remaining);
+              if (Number.isFinite(rr)) return s + Math.max(0, rr);
+              const derived =
+                Number(r?.balance ?? 0) +
+                Number(r?.carry_balance ?? 0) +
+                Number(r?.credit ?? 0) +
+                Number(r?.credits ?? 0) -
+                Number(r?.amount ?? 0);
+              return s + (Number.isFinite(derived) ? Math.max(0, derived) : 0);
+            }, 0);
+            if (Number.isFinite(sum)) {
+              remainingNow = sum;
+              balanceSource = "balance_view";
+            }
           }
         }
       } catch {}
-      // Final fallback: read from credit_accounts
-      if (remainingNow === null) {
-        try {
-          const rNow = await (serviceClient ?? supabase)
-            .from("credit_accounts")
-            .select("carry_balance")
-            .eq("user_id", targetUserId)
-            .maybeSingle();
-          if (!rNow.error) {
-            remainingNow = Number(rNow.data?.carry_balance ?? 0);
-          }
-        } catch {}
-      }
     }
 
-    return new NextResponse(
-      JSON.stringify({
-        ok: true,
-        reading: data,
-        content: contentText,
-        analysis: contentText,
-        // expose remaining to the client so it can update UI immediately
+    // 4) Tertiary: legacy `credits` table remaining_total
+    if (remainingNow === null) {
+      try {
+        const cres = await (serviceClient ?? supabase)
+          .from("credits")
+          .select("remaining_total,remaining")
+          .eq("user_id", targetUserId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (!cres.error && Array.isArray(cres.data) && cres.data.length) {
+          const row = cres.data[0] as any;
+          const val = Number(row?.remaining_total ?? row?.remaining ?? 0);
+          if (Number.isFinite(val)) {
+            remainingNow = Math.max(0, val);
+            balanceSource = "legacy_credits";
+          }
+        }
+      } catch {}
+    }
+
+    // Build response
+    const responseBody = {
+      ok: true,
+      reading: data,
+      content: contentText,
+      analysis: contentText,
+      balance: typeof remainingNow === "number" ? remainingNow : undefined,
+      remaining_total: typeof remainingNow === "number" ? remainingNow : undefined,
+      credits: {
         balance: typeof remainingNow === "number" ? remainingNow : undefined,
-        remaining_total: typeof remainingNow === "number" ? remainingNow : undefined,
-        // minimal debug for quick diagnosis (safe to keep in prod)
-        debug: {
-          hasUser: __debug.hasUser,
-          isAdmin: __debug.isAdmin,
-          targetUserId: __debug.targetUserId,
-          promptLen: __debug.promptLen,
-          analysisLen: __debug.analysisLen,
-          promptPreview: __debug.promptPreview,
-          openai: __debug.openai,
-          fallbackUsed: __debug.openaiFallbackUsed === true,
-          contentPreview: (contentText || "").slice(0, 120),
-          spentVia,
-          creditDebug,
-          legacyAdjust,
-        },
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store, max-age=0",
-        },
-      }
-    );
+        source: balanceSource,
+      },
+      // minimal debug for quick diagnosis (safe to keep in prod)
+      debug: {
+        hasUser: __debug.hasUser,
+        isAdmin: __debug.isAdmin,
+        targetUserId: __debug.targetUserId,
+        promptLen: __debug.promptLen,
+        analysisLen: __debug.analysisLen,
+        promptPreview: __debug.promptPreview,
+        openai: __debug.openai,
+        fallbackUsed: __debug.openaiFallbackUsed === true,
+        contentPreview: (contentText || "").slice(0, 120),
+        spentVia,
+        creditDebug,
+        legacyAdjust,
+        balanceSource,
+      },
+    };
+
+    return new NextResponse(JSON.stringify(responseBody), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
   } catch (e: any) {
     logError("Unhandled error", e);
     return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN", debug: __debug }, { status: 500 });
