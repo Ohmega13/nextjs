@@ -560,6 +560,105 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ----- Multi-bucket credit deduction -----
+    // พยายามตัดจาก bucket ตามลำดับ: feature เฉพาะ -> 'tarot' -> 'general'
+    type BucketKey = typeof featureKey | "tarot" | "general";
+    const bucketsToTry: BucketKey[] = [featureKey, "tarot", "general"];
+    let paidFrom: BucketKey | null = null;
+    let lastBalanceSeen: number | null = null;
+
+    // helper: อ่านยอดจากตาราง credits (fallback)
+    const readGenericBalance = async () => {
+      const { data: creditRow } = await creditClient
+        .from("credits")
+        .select("balance, carry_balance, credit")
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+      const val = Number(
+        creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
+      );
+      return Number.isFinite(val) ? val : 0;
+    };
+
+    // helper: อัปเดตยอด generic เมื่อ RPC ใช้ไม่ได้
+    const deductGeneric = async (amount: number) => {
+      const { data: creditRow } = await creditClient
+        .from("credits")
+        .select("balance, carry_balance, credit")
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+      const current = Number(
+        creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
+      );
+      lastBalanceSeen = current;
+      if (!Number.isFinite(current) || current < amount) return false;
+
+      const preferCols = ["balance", "credit", "carry_balance"];
+      let chosenCol: string | null = null;
+      for (const c of preferCols) {
+        if (creditRow && Object.prototype.hasOwnProperty.call(creditRow, c)) {
+          chosenCol = c;
+          break;
+        }
+      }
+      if (!chosenCol) return false;
+
+      const newVal = Math.max(0, current - amount);
+      const { error: updErr } = await creditClient
+        .from("credits")
+        .update({ [chosenCol]: newVal })
+        .eq("user_id", targetUserId);
+      return !updErr;
+    };
+
+    // ลองตัดเครดิตด้วย RPC ทีละ bucket
+    for (const bucket of bucketsToTry) {
+      const { data: rpcOk, error: rpcErr } = await creditClient.rpc("sp_use_credit", {
+        p_user_id: targetUserId,
+        p_feature: bucket,
+        p_cost: cost,
+        p_reading: null,
+      });
+
+      if (!rpcErr && rpcOk) {
+        paidFrom = bucket;
+        break;
+      }
+
+      // ถ้า RPC ล้มเหลว ให้ลองวิธี generic เฉพาะกรณี bucket เป็น 'tarot' หรือ 'general'
+      if (bucket === "tarot" || bucket === "general") {
+        const ok = await deductGeneric(cost);
+        if (ok) {
+          paidFrom = bucket;
+          break;
+        }
+      }
+    }
+
+    // ยังตัดไม่ได้ => ตรวจยอดล่าสุดแล้วตอบ 402
+    if (!paidFrom) {
+      // พยายามอ่านยอดเพื่อใส่ debug
+      if (lastBalanceSeen === null) {
+        lastBalanceSeen = await readGenericBalance();
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
+          debug: {
+            targetRaw,
+            targetUserId,
+            mappedFromClient,
+            currentBalance: lastBalanceSeen ?? 0,
+            cost,
+            featureKey,
+            triedBuckets: bucketsToTry
+          }
+        },
+        { status: 402 }
+      );
+    }
+
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
     const { data: profile } = await supabase
       .from("profiles")
