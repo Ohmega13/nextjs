@@ -367,7 +367,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     // รองรับแอดมินทำรายการแทนลูกดวงผ่าน header x-ddt-target-user หรือ body
-    const targetHeader = req.headers.get("x-ddt-target-user");
+    const targetHeader = req.headers.get("x-ddt-target-user") || req.headers.get("X-DDT-Target-User");
     const isAdmin = meProfile?.role === "admin";
     __debug.isAdmin = isAdmin;
     const targetBody = body?.targetUserId || body?.target_user_id;
@@ -401,9 +401,37 @@ export async function POST(req: NextRequest) {
       p_reading: null,
     });
     if (creditError || !creditResult) {
+      // ตรวจซ้ำ: ถ้า RPC ล้มเหลว ให้เช็คยอดเครดิตตรง ๆ เพื่อบอกสาเหตุให้ถูกต้อง
+      const { data: creditRow, error: balErr } = await supabase
+        .from("credits")
+        .select("balance, carry_balance, credit")
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+      const currentBalance = Number(
+        creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
+      );
+      // ถ้ายอดน้อยกว่าค่าใช้จ่ายจริง ค่อยตอบ 402
+      if (currentBalance < cost) {
+        return NextResponse.json(
+          { ok: false, error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ" },
+          { status: 402 }
+        );
+      }
+      // ไม่ใช่ปัญหาเครดิต แต่ RPC พัง — แจ้งเป็น 500 พร้อม debug
       return NextResponse.json(
-        { ok: false, error: "เครดิตไม่พอ กรุณาเติมเครดิต" },
-        { status: 402 }
+        {
+          ok: false,
+          error: "CREDIT_RPC_FAILED",
+          details: creditError?.message ?? null,
+          debug: {
+            targetUserId,
+            featureKey,
+            cost,
+            currentBalance,
+            balErr: balErr?.message ?? null
+          }
+        },
+        { status: 500 }
       );
     }
 
