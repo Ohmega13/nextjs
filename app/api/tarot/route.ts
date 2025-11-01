@@ -366,8 +366,19 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    // รองรับแอดมินทำรายการแทนลูกดวงผ่าน header x-ddt-target-user หรือ body
-    const targetHeader = req.headers.get("x-ddt-target-user") || req.headers.get("X-DDT-Target-User");
+    // รองรับหลาย alias ของ target header (กัน proxy เปลี่ยนชื่อ)
+    const headerAliases = [
+      "x-ddt-target-user",
+      "X-DDT-Target-User",
+      "x-ddt-targetUser",
+      "x-target-user-id",
+      "x-target-user",
+    ];
+    let targetHeader = "";
+    for (const k of headerAliases) {
+      const v = req.headers.get(k as any);
+      if (v) { targetHeader = v; break; }
+    }
     const isAdmin = meProfile?.role === "admin";
     __debug.isAdmin = isAdmin;
     const targetBody = body?.targetUserId || body?.target_user_id;
@@ -401,7 +412,7 @@ export async function POST(req: NextRequest) {
       p_reading: null,
     });
     if (creditError || !creditResult) {
-      // ตรวจซ้ำ: ถ้า RPC ล้มเหลว ให้เช็คยอดเครดิตตรง ๆ เพื่อบอกสาเหตุให้ถูกต้อง
+      // ตรวจซ้ำ: ถ้า RPC ล้มเหลว ให้เช็คยอดเครดิตตรง ๆ แล้วลองตัดเครดิตแบบ fallback
       const { data: creditRow, error: balErr } = await supabase
         .from("credits")
         .select("balance, carry_balance, credit")
@@ -411,28 +422,64 @@ export async function POST(req: NextRequest) {
         creditRow?.balance ?? creditRow?.carry_balance ?? creditRow?.credit ?? 0
       );
       // ถ้ายอดน้อยกว่าค่าใช้จ่ายจริง ค่อยตอบ 402
-      if (currentBalance < cost) {
+      if (!Number.isFinite(currentBalance) || currentBalance < cost) {
         return NextResponse.json(
           { ok: false, error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ" },
           { status: 402 }
         );
       }
-      // ไม่ใช่ปัญหาเครดิต แต่ RPC พัง — แจ้งเป็น 500 พร้อม debug
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "CREDIT_RPC_FAILED",
-          details: creditError?.message ?? null,
-          debug: {
-            targetUserId,
-            featureKey,
-            cost,
-            currentBalance,
-            balErr: balErr?.message ?? null
-          }
-        },
-        { status: 500 }
-      );
+      // มีเครดิตพอ → พยายามตัดเครดิตด้วยการอัปเดตตารางโดยตรง (กันกรณี RPC พัง)
+      const preferCols = ["balance", "credit", "carry_balance"];
+      let chosenCol: string | null = null;
+      for (const c of preferCols) {
+        if (creditRow && Object.prototype.hasOwnProperty.call(creditRow, c)) {
+          chosenCol = c;
+          break;
+        }
+      }
+      if (chosenCol) {
+        const newVal = Math.max(0, currentBalance - cost);
+        const { error: updErr } = await supabase
+          .from("credits")
+          .update({ [chosenCol]: newVal })
+          .eq("user_id", targetUserId);
+        if (updErr) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "CREDIT_RPC_FAILED",
+              details: creditError?.message ?? updErr?.message ?? null,
+              debug: {
+                targetUserId,
+                featureKey,
+                cost,
+                currentBalance,
+                chosenCol,
+                balErr: balErr?.message ?? null
+              }
+            },
+            { status: 500 }
+          );
+        }
+        // อัปเดตสำเร็จ → ดำเนินต่อไปเหมือนหักเครดิตผ่าน RPC ได้
+      } else {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "CREDIT_RPC_FAILED",
+            details: creditError?.message ?? null,
+            debug: {
+              targetUserId,
+              featureKey,
+              cost,
+              currentBalance,
+              chosenCol,
+              balErr: balErr?.message ?? null
+            }
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // โหลดโปรไฟล์ของผู้ที่ถูกดูดวง (อาจเป็นตัวเองหรือคนที่แอดมินเลือก)
