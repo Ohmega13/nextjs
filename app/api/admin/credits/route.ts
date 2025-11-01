@@ -167,10 +167,16 @@ export async function GET(req: Request) {
       ]);
 
       const balance = await resolveBalance(userId);
-      return NextResponse.json({
-        user_id: userId,
-        carry_balance: balance,
-      });
+      return NextResponse.json(
+        {
+          user_id: userId,
+          carry_balance: balance,
+          balance, // alias for UI that expects `balance`
+        },
+        {
+          headers: { 'Cache-Control': 'no-store, max-age=0' },
+        }
+      );
     }
 
     const { data, error } = await svc
@@ -193,7 +199,10 @@ export async function GET(req: Request) {
       balance: Number(r.carry_balance ?? 0),
     }));
 
-    return NextResponse.json({ ok: true, items });
+    return NextResponse.json(
+      { ok: true, items: items.map((it) => ({ ...it, carry_balance: it.balance })) },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (e: any) {
     console.error("GET /api/admin/credits error:", e?.message || e, e?.stack);
     return NextResponse.json({ ok: false, error: e?.message ?? "INTERNAL" }, { status: 500 });

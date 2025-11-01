@@ -25,6 +25,17 @@ type Props = {
 };
 
 export default function MembersTable({ rows, toggle, topup }: Props) {
+  const renderBalance = (r: Row) => {
+    const v = (r as any)?.balance ?? (r as any)?.carry_balance ?? (r as any)?.credit_balance;
+    if (v === null || v === undefined) {
+      return <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
+    }
+    const n = Number(v);
+    if (!Number.isFinite(n)) {
+      return <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
+    }
+    return n.toLocaleString('th-TH');
+  };
 
   return (
     <div className="rounded-xl border overflow-x-auto">
@@ -50,16 +61,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
               <td className="px-3 py-2">{r.role}</td>
               <StatusDropdown user_id={r.user_id} status={r.status} />
               <td className="px-3 py-2 text-right">
-                {(() => {
-                  const bal =
-                    (r as any)?.balance ??
-                    (r as any)?.carry_balance ??
-                    (r as any)?.credit_balance ??
-                    null;
-                  return bal !== null && bal !== undefined
-                    ? Number(bal).toLocaleString('th-TH')
-                    : <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
-                })()}
+                {renderBalance(r)}
               </td>
               <td className="px-3 py-2 text-center">
                 <button
