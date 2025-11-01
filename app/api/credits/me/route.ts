@@ -1,6 +1,6 @@
 // app/api/credits/me/route.ts
-import { NextResponse } from "next/server";
-import { cookies, headers } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +18,9 @@ function getTargetUserIdFromReq(req: Request, fallback?: string | null) {
 }
 
 // Create a Supabase client with cookie + headers
-async function getSupabase() {
+async function getSupabase(req: Request) {
   const cookieStore = cookies();
-  const headerStore = headers();
+  const headerStore = req.headers;
 
   const mergedHeaders: Record<string, string> = {};
   const xfHost = headerStore.get("x-forwarded-host");
@@ -52,9 +52,9 @@ async function getSupabase() {
   );
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
-    const supabase = await getSupabase();
+    const supabase = await getSupabase(req);
 
     // 1) Identify user
     const {
