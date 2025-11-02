@@ -1,3 +1,34 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSupabase } from "@/lib/supabase/server";
+
+function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
+  // 1) query string first
+  const url = new URL(req.url);
+  const qp =
+    url.searchParams.get("user_id") ||
+    url.searchParams.get("uid") ||
+    url.searchParams.get("userid");
+  if (qp) return qp;
+
+  // 2) custom headers
+  const h = req.headers;
+  const hTarget =
+    h.get("x-ddt-target-user") ||
+    h.get("X-DDT-Target-User") ||
+    h.get("x-target-user") ||
+    h.get("x-user-id");
+  if (hTarget) return hTarget;
+
+  // 3) cookies on the request object
+  const c1 = req.cookies.get("ddt_uid")?.value;
+  const c2 = req.cookies.get("sb-user-id")?.value;
+  if (c1) return c1;
+  if (c2) return c2;
+
+  // 4) fallback from caller (e.g., session user)
+  return fallback;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = await getSupabase(req);
