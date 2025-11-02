@@ -903,11 +903,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (legacyTry?.ok) {
-          // Succeeded via legacy table; mark as spent and continue
-          spentVia = "legacy";
+          // Succeeded via legacy table; treat as table-path for typing,
+          // but keep a marker that it came from legacy.
+          spentVia = "table";
           creditDebug = {
             ok: true,
-            path: "legacy",
+            path: "table",
+            viaLegacy: true,
             deducted: cost,
             legacy: legacyTry,
             ruleKey: normalizeRuleKey(featureKey),
