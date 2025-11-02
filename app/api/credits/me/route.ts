@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabase } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
   // 1) query string first
@@ -29,9 +30,36 @@ function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
   return fallback;
 }
 
+function makeSupabase() {
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const SUPABASE_KEY =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const cookieStore = cookies();
+
+  return createServerClient(SUPABASE_URL, SUPABASE_KEY, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set(name: string, value: string, options?: any) {
+        cookieStore.set({ name, value, ...(options ?? {}) });
+      },
+      remove(name: string, options?: any) {
+        cookieStore.set({
+          name,
+          value: "",
+          ...(options ?? {}),
+          expires: new Date(0),
+        });
+      },
+    },
+  });
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await getSupabase(req);
+    const supabase = makeSupabase();
 
     // 1) Try to read current session user (best-effort)
     const {
