@@ -39,6 +39,20 @@ function pickPerm(src: any, base: 'tarot' | 'natal' | 'palm'): boolean | undefin
   return undefined;
 }
 
+/**
+ * Extract array of rows from various payload shapes
+ * - [], {rows: []}, {data: []}, {items: []}, {result: {rows: []}}
+ */
+function extractRows(payload: any): any[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.rows)) return payload.rows;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (payload.result && Array.isArray(payload.result.rows)) return payload.result.rows;
+  return [];
+}
+
 export default function MembersClient() {
   const [rows, setRows] = useState<MembersRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,14 +80,8 @@ export default function MembersClient() {
     }
 
     const data = await res.json();
-    // รองรับทั้ง {items: []}, {data: []} หรือ [] ตรง ๆ
-    const list: any[] = Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(data?.data)
-        ? data.data
-        : Array.isArray(data)
-          ? data
-          : [];
+    // รองรับได้หลายรูปแบบ: [], {rows: []}, {data: []}, {items: []}, {result:{rows:[]}}
+    const list: any[] = extractRows(data);
 
     const mappedRows: MembersRow[] = list.map((item: any) => {
       // รองรับทั้งโครงจาก view v_admin_members และโครงเก่าที่แนบซ้อน profile/account
@@ -88,15 +96,9 @@ export default function MembersClient() {
       const status: 'pending' | 'active' | 'suspended' = (item.status ?? p.status ?? 'active') as any;
       const plan: string = item.plan ?? a.plan ?? 'prepaid';
 
-      // อ่านสิทธิ์จากคอลัมน์หลักก่อน (จาก view v_admin_members),
-      // ถ้าไม่มีค่อย fallback ไป permissions(JSON)
-      const tarotDirect = item.tarot;
-      const natalDirect = item.natal;
-      const palmDirect  = item.palm;
-
-      const tarot = tarotDirect !== undefined ? coerceBool(tarotDirect) : (pickPerm(permsObj, 'tarot') ?? coerceBool(permsObj?.tarot));
-      const natal = natalDirect !== undefined ? coerceBool(natalDirect) : (pickPerm(permsObj, 'natal') ?? coerceBool(permsObj?.natal));
-      const palm  = palmDirect  !== undefined ? coerceBool(palmDirect)  : (pickPerm(permsObj, 'palm')  ?? coerceBool(permsObj?.palm));
+      const tarotFlag = item.tarot !== undefined ? coerceBool(item.tarot) : (pickPerm(permsObj, 'tarot') ?? coerceBool(permsObj?.tarot));
+      const natalFlag = item.natal !== undefined ? coerceBool(item.natal) : (pickPerm(permsObj, 'natal') ?? coerceBool(permsObj?.natal));
+      const palmFlag  = item.palm  !== undefined ? coerceBool(item.palm)  : (pickPerm(permsObj, 'palm')  ?? coerceBool(permsObj?.palm));
 
       // เครดิตจากคอลัมน์รวมใน view (credits_remaining) หรือชื่อเก่า ๆ
       const credit_balance =
@@ -114,9 +116,9 @@ export default function MembersClient() {
         display_name,
         role,
         status,
-        tarot,
-        natal,
-        palm,
+        tarot: tarotFlag,
+        natal: natalFlag,
+        palm: palmFlag,
         credit_balance,
         balance: credit_balance,
         carry_balance: credit_balance,
