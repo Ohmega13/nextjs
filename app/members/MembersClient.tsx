@@ -1,7 +1,8 @@
 'use client';
 
-import MembersTable from './members-table';
-import type { Row as MembersRow } from './members-table';
+import React, { useEffect, useState, useCallback } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import MembersTable, { Row as MembersRow } from './members-table';
 
 /**
  * Coerce various truthy/falsy representations from Supabase into boolean
