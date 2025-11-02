@@ -110,16 +110,24 @@ function pickAnalysisText(r?: { payload?: any; content?: string | null }) {
 // --------------------------------------------------------------------------
 
 export default function TarotReadingPage() {
+  const [role, setRole] = useState<'admin' | 'member'>('member');
+  const [clientId, setClientId] = useState<string | null>(null);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, _session) => {
       loadCredits(clientId ?? undefined);
       window.dispatchEvent(new CustomEvent('credits:refresh'));
     });
-    return () => { sub.subscription?.unsubscribe?.(); };
-  }, [clientId, loadCredits, supabase]);
-  const [role, setRole] = useState<'admin' | 'member'>('member');
-  const [clientId, setClientId] = useState<string | null>(null);
+
+    return () => {
+      // รองรับรูปแบบการ unsubscribe ของ SDK รุ่นใหม่และเก่า
+      // @ts-ignore
+      sub?.data?.subscription?.unsubscribe?.();
+      // @ts-ignore
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, [clientId, loadCredits]);
 
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
