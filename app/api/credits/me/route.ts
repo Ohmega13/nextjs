@@ -1,81 +1,41 @@
-// app/api/credits/me/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const revalidate = 0;
-
-function getTargetUserIdFromReq(req: Request, fallback?: string | null) {
-  const url = new URL(req.url);
-  const qp = url.searchParams.get("user_id");
-  const h = req.headers;
-  const h1 = h.get("x-ddt-target-user");
-  const h2 = h.get("X-DDT-Target-User");
-  const h3 = h.get("x-ddt-targetuser");
-  const h4 = h.get("x-ddt-target-user-id");
-  return qp ?? h1 ?? h2 ?? h3 ?? h4 ?? fallback ?? null;
-}
-
-// Create a Supabase client with cookie + headers
-async function getSupabase(req: Request) {
-  const cookieStore = await cookies();
-  const headerStore = req.headers;
-
-  const mergedHeaders: Record<string, string> = {};
-  const xfHost = headerStore.get("x-forwarded-host");
-  const xfProto = headerStore.get("x-forwarded-proto");
-  if (xfHost) mergedHeaders["x-forwarded-host"] = xfHost;
-  if (xfProto) mergedHeaders["x-forwarded-proto"] = xfProto;
-
-  const authz = headerStore.get("authorization") || headerStore.get("Authorization");
-  if (authz) mergedHeaders["authorization"] = authz;
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options?: any) {
-          cookieStore.set({ name, value, ...(options ?? {}) });
-        },
-        remove(name: string, options?: any) {
-          cookieStore.set({ name, value: "", ...(options ?? {}), maxAge: 0 });
-        },
-      },
-      headers: mergedHeaders,
-      cookieOptions: { sameSite: "lax", secure: true },
-    }
-  );
-}
-
 export async function GET(req: NextRequest) {
   try {
     const supabase = await getSupabase(req);
 
-    // 1) Identify user
+    // 1) Try to read current session user (best-effort)
     const {
       data: { user },
       error: userErr,
     } = await supabase.auth.getUser();
 
-    if (userErr && !user) {
-      return NextResponse.json(
-        { ok: false, error: "no_session" },
-        { status: 401 }
-      );
-    }
+    // 2) Resolve target user from query/header/session (no 401 here)
+    const targetUserId =
+      getTargetUserIdFromReq(req, user?.id ?? null);
 
-    // 2) Determine target user (admin can query other users)
-    const targetUserId = getTargetUserIdFromReq(req, user?.id ?? null);
+    // If we truly cannot identify a user, return 200 with zero balance
     if (!targetUserId) {
       return NextResponse.json(
-        { ok: false, error: "no_user" },
-        { status: 401 }
+        {
+          ok: true,
+          data: {
+            user_id: null,
+            bucket: "tarot",
+            balance: 0,
+            carry_balance: 0,
+            credit: 0,
+            credits: 0,
+            amount: 0,
+            remaining: 0,
+            remaining_total: 0,
+            plan: "prepaid",
+            source: "no_session",
+            note: "no user context; returning 0 instead of 401",
+          },
+        },
+        {
+          status: 200,
+          headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
+        }
       );
     }
 
@@ -88,19 +48,20 @@ export async function GET(req: NextRequest) {
 
     if (!acct.error && acct.data) {
       const bal = Number(acct.data.carry_balance ?? 0);
+      const safe = Number.isFinite(bal) ? Math.max(0, bal) : 0;
       return NextResponse.json(
         {
           ok: true,
           data: {
             user_id: targetUserId,
             bucket: "tarot",
-            balance: Number.isFinite(bal) ? bal : 0,
-            carry_balance: Number.isFinite(bal) ? bal : 0,
-            credit: Number.isFinite(bal) ? bal : 0,
-            credits: Number.isFinite(bal) ? bal : 0,
-            amount: Number.isFinite(bal) ? bal : 0,
-            remaining: Number.isFinite(bal) ? bal : 0,
-            remaining_total: Number.isFinite(bal) ? bal : 0,
+            balance: safe,
+            carry_balance: safe,
+            credit: safe,
+            credits: safe,
+            amount: safe,
+            remaining: safe,
+            remaining_total: safe,
             plan: acct.data.plan ?? "prepaid",
             updated_at: acct.data.updated_at ?? null,
             source: "credit_accounts",
@@ -113,7 +74,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 4) Fallback: credits (legacy)
+    // 4) Fallback: credits (legacy buckets)
     let legacyBalance = 0;
     try {
       const buckets = ["tarot_3", "tarot_weight", "tarot_10", "tarot", "global"];
@@ -128,7 +89,7 @@ export async function GET(req: NextRequest) {
       if (!legacy.error && legacy.data?.length) {
         const row = legacy.data[0];
         const val = Number(row.remaining_total ?? row.remaining ?? 0);
-        legacyBalance = Number.isFinite(val) ? val : 0;
+        legacyBalance = Number.isFinite(val) ? Math.max(0, val) : 0;
       }
     } catch (e) {
       console.warn("Legacy credit fallback error", e);
@@ -158,9 +119,26 @@ export async function GET(req: NextRequest) {
     );
   } catch (e: any) {
     console.error("GET /api/credits/me error:", e);
+    // never break the UI with 5xx; return zero with ok:false for visibility
     return NextResponse.json(
-      { ok: false, error: "internal_error" },
-      { status: 500, headers: { "Cache-Control": "no-store" } }
+      {
+        ok: false,
+        error: e?.message ?? "internal_error",
+        data: {
+          user_id: null,
+          bucket: "tarot",
+          balance: 0,
+          carry_balance: 0,
+          credit: 0,
+          credits: 0,
+          amount: 0,
+          remaining: 0,
+          remaining_total: 0,
+          plan: "prepaid",
+          source: "error_fallback",
+        },
+      },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
