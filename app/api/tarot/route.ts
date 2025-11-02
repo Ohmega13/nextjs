@@ -940,7 +940,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!viaView.ok) {
-      // Fallback path: use credit_accounts.carry_balance
+      // Fallback path 1: try credit_accounts.carry_balance
       const acct = await tryDeductFromCreditAccounts({
         reader: creditClient,
         writer: writerClient,
@@ -949,52 +949,80 @@ export async function POST(req: NextRequest) {
       });
 
       if (!acct.ok) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
-            debug: {
-              reason: acct.reason,
-              balance: (acct as any).balance ?? null,
-              detail: (acct as any).detail ?? null,
-              targetUserId,
-              featureKey,
-              cost,
-              bucketsToTry,
-              viaViewReason: viaView.reason ?? null,
+        // Fallback path 2: adjust legacy `credits` table (the same source many UIs use)
+        let legacyTry: any = null;
+        try {
+          legacyTry = await adjustLegacyCreditsTable({
+            client: writerClient,
+            userId: targetUserId,
+            cost,
+            bucketsToTry,
+          });
+        } catch (e) {
+          legacyTry = { ok: false, reason: "legacy_adjust_exception", detail: String((e as any)?.message ?? e) };
+        }
+
+        if (legacyTry?.ok) {
+          // Treat as succeeded via table path, but mark `viaLegacy`
+          spentVia = "table";
+          creditDebug = {
+            ok: true,
+            path: "table",
+            viaLegacy: true,
+            deducted: cost,
+            legacy: legacyTry,
+            ruleKey: normalizeRuleKey(featureKey),
+          };
+        } else {
+          // Still not enough; return 402 with rich debug
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
+              debug: {
+                reason: acct.reason,
+                balance: (acct as any).balance ?? null,
+                detail: (acct as any).detail ?? null,
+                targetUserId,
+                featureKey,
+                cost,
+                bucketsToTry,
+                viaViewReason: viaView.reason ?? null,
+                legacyTry,
+              },
             },
-          },
-          { status: 402 }
-        );
+            { status: 402 }
+          );
+        }
+      } else {
+        // Success via direct credit_accounts update
+        spentVia = "table";
+        creditDebug = {
+          ok: true,
+          path: "table",
+          deducted: cost,
+          newBalance: Number((acct as any).balance ?? 0),
+          ruleKey: normalizeRuleKey(featureKey),
+        };
+
+        // Also write logs so any view that depends on usage/transactions stays in sync
+        try {
+          await writerClient.from("credit_transactions").insert({
+            user_id: targetUserId,
+            feature: normalizeRuleKey(featureKey),
+            bucket: primaryBucket,
+            amount: -cost,
+          });
+        } catch {}
+        try {
+          await writerClient.from(USAGE_TABLE).insert({
+            user_id: targetUserId,
+            feature: normalizeRuleKey(featureKey),
+            bucket: primaryBucket,
+            cost,
+          });
+        } catch {}
       }
-
-      // Success via direct table update
-      spentVia = "table";
-      creditDebug = {
-        ok: true,
-        path: "table",
-        deducted: cost,
-        newBalance: Number((acct as any).balance ?? 0),
-        ruleKey: normalizeRuleKey(featureKey),
-      };
-
-      // Also write logs so any view that depends on usage/transactions stays in sync
-      try {
-        await writerClient.from("credit_transactions").insert({
-          user_id: targetUserId,
-          feature: normalizeRuleKey(featureKey),
-          bucket: primaryBucket,
-          amount: -cost,
-        });
-      } catch {}
-      try {
-        await writerClient.from(USAGE_TABLE).insert({
-          user_id: targetUserId,
-          feature: normalizeRuleKey(featureKey),
-          bucket: primaryBucket,
-          cost,
-        });
-      } catch {}
     }
 
     // Best-effort adjust legacy `credits` table so UI using that table stays in sync
