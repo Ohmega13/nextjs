@@ -52,7 +52,7 @@ export default function MembersClient() {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? '';
 
-    const res = await fetch('/api/admin/credits', {
+    const res = await fetch('/api/admin/members', {
       method: 'GET',
       cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -66,34 +66,46 @@ export default function MembersClient() {
     }
 
     const data = await res.json();
-    const list = Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
+    // รองรับทั้ง {items: []}, {data: []} หรือ [] ตรง ๆ
+    const list: any[] = Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data)
+          ? data
+          : [];
 
     const mappedRows: MembersRow[] = list.map((item: any) => {
+      // รองรับทั้งโครงจาก view v_admin_members และโครงเก่าที่แนบซ้อน profile/account
       const p = item.profile ?? {};
       const a = item.account ?? {};
       const permsObj = item.permissions ?? item.perms ?? item.permission ?? {};
 
       const user_id: string = item.user_id ?? p.user_id ?? a.user_id ?? '';
-      const email: string = p.email ?? item.email ?? '-';
-      const display_name: string | null = p.display_name ?? item.display_name ?? null;
-      const role: 'admin' | 'member' = (p.role ?? item.role ?? 'member') as any;
-      const status: 'pending' | 'active' | 'suspended' = (p.status ?? item.status ?? 'active') as any;
-      const plan: string = a.plan ?? item.plan ?? 'prepaid';
+      const email: string = item.email ?? p.email ?? '-';
+      const display_name: string | null = item.display_name ?? p.display_name ?? null;
+      const role: 'admin' | 'member' = (item.role ?? p.role ?? 'member') as any;
+      const status: 'pending' | 'active' | 'suspended' = (item.status ?? p.status ?? 'active') as any;
+      const plan: string = item.plan ?? a.plan ?? 'prepaid';
 
-      const tarot = pickPerm(permsObj, 'tarot');
-      const natal = pickPerm(permsObj, 'natal');
-      const palm  = pickPerm(permsObj, 'palm');
+      // อ่านสิทธิ์จากคอลัมน์หลักก่อน (จาก view v_admin_members),
+      // ถ้าไม่มีค่อย fallback ไป permissions(JSON)
+      const tarotDirect = item.tarot;
+      const natalDirect = item.natal;
+      const palmDirect  = item.palm;
 
-      // Ensure boolean top-level flags exist to match MembersTable.Row
-      const tarotFlag = (tarot !== undefined ? tarot : coerceBool(permsObj?.tarot));
-      const natalFlag = (natal !== undefined ? natal : coerceBool(permsObj?.natal));
-      const palmFlag  = (palm  !== undefined ? palm  : coerceBool(permsObj?.palm));
+      const tarot = tarotDirect !== undefined ? coerceBool(tarotDirect) : (pickPerm(permsObj, 'tarot') ?? coerceBool(permsObj?.tarot));
+      const natal = natalDirect !== undefined ? coerceBool(natalDirect) : (pickPerm(permsObj, 'natal') ?? coerceBool(permsObj?.natal));
+      const palm  = palmDirect  !== undefined ? coerceBool(palmDirect)  : (pickPerm(permsObj, 'palm')  ?? coerceBool(permsObj?.palm));
 
-      // normalize credit balance
+      // เครดิตจากคอลัมน์รวมใน view (credits_remaining) หรือชื่อเก่า ๆ
       const credit_balance =
         Number(
+          item.credits_remaining ??
+          item.credit_balance ??
+          item.balance ??
           a.carry_balance ?? a.balance ?? a.credit_balance ??
-          item.carry_balance ?? item.balance ?? item.credit_balance ?? 0
+          0
         ) || 0;
 
       return {
@@ -102,10 +114,9 @@ export default function MembersClient() {
         display_name,
         role,
         status,
-        // flattened flags for table columns & optimistic updates
-        tarot: tarotFlag,
-        natal: natalFlag,
-        palm:  palmFlag,
+        tarot,
+        natal,
+        palm,
         credit_balance,
         balance: credit_balance,
         carry_balance: credit_balance,
