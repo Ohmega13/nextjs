@@ -22,16 +22,44 @@ export async function GET(req: Request) {
   try {
     await ensureAdmin(req);
 
+    // Query canonical members directly from profiles + joined credit_accounts
     const { data, error } = await supaAdmin
-      .from('v_admin_members')
-      .select(
-        'user_id, email, display_name, role, status, tarot, natal, palm, carry_balance'
-      )
+      .from('profiles')
+      .select(`
+        user_id,
+        email,
+        display_name,
+        role,
+        status,
+        permissions,
+        credit_accounts(balance)
+      `)
       .order('display_name', { ascending: true });
 
     if (error) throw error;
 
-    return NextResponse.json({ rows: data ?? [] });
+    // Normalize to the shape the admin UI expects
+    const rows = (data ?? []).map((row: any) => {
+      const perms = row?.permissions ?? {};
+      const toBool = (v: any) =>
+        typeof v === 'boolean' ? v : (typeof v === 'string' ? v.toLowerCase() === 'true' : !!v);
+      const balance =
+        (Array.isArray(row?.credit_accounts) && row.credit_accounts[0]?.balance) ?? 0;
+
+      return {
+        user_id: row.user_id,
+        email: row.email ?? '-',
+        display_name: row.display_name ?? '',
+        role: row.role ?? 'member',
+        status: row.status ?? 'inactive',
+        tarot: toBool(perms?.tarot),
+        natal: toBool(perms?.natal),
+        palm: toBool(perms?.palm),
+        carry_balance: balance,
+      };
+    }).sort((a: any, b: any) => (a.display_name || '').localeCompare(b.display_name || ''));
+
+    return NextResponse.json({ rows });
   } catch (e: any) {
     console.error('/api/admin/members error:', e?.message || e, e?.stack);
     const code =
