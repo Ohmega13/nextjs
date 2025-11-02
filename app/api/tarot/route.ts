@@ -861,7 +861,6 @@ export async function POST(req: NextRequest) {
 
     // Always prefer service-role for writes if available (even for self) to avoid RLS edge cases.
     const writerClient = (serviceClient ?? supabase) as any;
-    const creditClient = (serviceClient ?? supabase) as any;
 
     const bucketsToTry = [featureKey, primaryBucket, "tarot", "global"].filter(
       (v, i, a) => typeof v === "string" && a.indexOf(v) === i
