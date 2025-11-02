@@ -2,44 +2,18 @@
 
 import React from 'react';
 
-// Helper: tolerate different column names from Supabase (e.g., tarot, tarot_enabled, can_tarot, tarotEnabled, allow_tarot)
-function pickPerm(p: Record<string, any> | undefined, base: string): boolean {
-  if (!p) return false;
-  const candidates = [
-    base,
-    `${base}_enabled`,
-    `can_${base}`,
-    `${base}Enabled`,
-    `${base}Allow`,
-    `allow_${base}`,
-  ];
-  for (const k of candidates) {
-    if (k in p) {
-      const v = (p as any)[k];
-      if (typeof v === 'boolean') return v;
-      if (v === 1 || v === '1' || v === 'true' || v === 't') return true;
-      if (v === 0 || v === '0' || v === 'false' || v === 'f') return false;
-    }
-  }
-  // fallback
-  return !!(p as any)[base];
-}
-
 type Row = {
   user_id: string;
-  email: string;
+  email: string | null;
   role: string;
   status: string;
   display_name: string | null;
+  tarot: boolean;
+  natal: boolean;
+  palm: boolean;
   credit_balance?: number; // from legacy API
   carry_balance?: number;
   balance?: number;        // from /api/admin/credits
-  permissions: {
-    tarot?: boolean;
-    natal?: boolean;
-    palm?: boolean;
-    [k: string]: any;
-  };
 };
 
 type Props = {
@@ -80,7 +54,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.user_id} className="border-t">
-              <td className="px-3 py-2">{r.email}</td>
+              <td className="px-3 py-2">{r.email ?? '-'}</td>
               <td className="px-3 py-2">{r.display_name ?? '-'}</td>
               <td className="px-3 py-2">{r.role}</td>
               <StatusDropdown user_id={r.user_id} status={r.status} />
@@ -118,9 +92,9 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={pickPerm(r.permissions, 'tarot')}
+                    checked={!!r.tarot}
                     onChange={(e) => toggle(r, 'tarot', e.target.checked)}
-                    aria-label={`ให้สิทธิ์ Tarot กับ ${r.email}`}
+                    aria-label={`ให้สิทธิ์ Tarot กับ ${r.email ?? '-'}`}
                   />
                 </label>
               </td>
@@ -130,9 +104,9 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={pickPerm(r.permissions, 'natal')}
+                    checked={!!r.natal}
                     onChange={(e) => toggle(r, 'natal', e.target.checked)}
-                    aria-label={`ให้สิทธิ์ พื้นดวง กับ ${r.email}`}
+                    aria-label={`ให้สิทธิ์ พื้นดวง กับ ${r.email ?? '-'}`}
                   />
                 </label>
               </td>
@@ -142,9 +116,9 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={pickPerm(r.permissions, 'palm')}
+                    checked={!!r.palm}
                     onChange={(e) => toggle(r, 'palm', e.target.checked)}
-                    aria-label={`ให้สิทธิ์ ลายมือ กับ ${r.email}`}
+                    aria-label={`ให้สิทธิ์ ลายมือ กับ ${r.email ?? '-'}`}
                   />
                 </label>
               </td>
