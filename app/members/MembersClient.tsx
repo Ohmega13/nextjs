@@ -2,28 +2,45 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import MembersTable from './members-table';
+import MembersTable type { Row as MembersRow } from './members-table';
 
-type Row = {
-  user_id: string;
-  email: string;
-  role: string;
-  status: string;
-  display_name: string | null;
-  permissions: {
-    tarot?: boolean;
-    natal?: boolean;
-    palm?: boolean;
-    [k: string]: any;
-  };
-  credit_balance?: number;
-  balance?: number;
-  carry_balance?: number;
-  plan?: string;
-};
+/**
+ * Coerce various truthy/falsy representations from Supabase into boolean
+ */
+function coerceBool(v: any): boolean {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    if (s === 'true' || s === 't' || s === '1' || s === 'yes' || s === 'y') return true;
+    if (s === 'false' || s === 'f' || s === '0' || s === 'no' || s === 'n') return false;
+  }
+  return !!v;
+}
+
+/**
+ * Try to extract a permission from multiple possible column names
+ * (tarot, can_tarot, allow_tarot, is_tarot_enabled, etc.)
+ */
+function pickPerm(src: any, base: 'tarot' | 'natal' | 'palm'): boolean | undefined {
+  if (!src || typeof src !== 'object') return undefined;
+  const keys = [
+    base,
+    `can_${base}`,
+    `allow_${base}`,
+    `is_${base}_enabled`,
+    `${base}_enabled`,
+    `${base}_allow`,
+    `${base}_allowed`,
+  ];
+  for (const k of keys) {
+    if (k in src) return coerceBool(src[k]);
+  }
+  return undefined;
+}
 
 export default function MembersClient() {
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<MembersRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -31,7 +48,7 @@ export default function MembersClient() {
     setLoading(true);
     setErr(null);
 
-    // ใช้ Bearer token สำหรับ endpoint admin เพื่อเลี่ยง 401
+    // ใช้ Bearer token สำหรับ endpoint admin
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? '';
 
@@ -49,22 +66,37 @@ export default function MembersClient() {
     }
 
     const data = await res.json();
+    const list = Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
 
-    const mappedRows: Row[] = (data.items || data.data || []).map((item: any) => {
+    const mappedRows: MembersRow[] = list.map((item: any) => {
       const p = item.profile ?? {};
       const a = item.account ?? {};
-      const perms = item.permissions ?? {};
+      const permsObj = item.permissions ?? item.perms ?? item.permission ?? {};
 
-      const user_id = item.user_id ?? p.user_id ?? a.user_id ?? '';
-      const email = p.email ?? item.email ?? '-';
-      const display_name = p.display_name ?? item.display_name ?? null;
-      const role = p.role ?? item.role ?? 'member';
-      const status = p.status ?? item.status ?? 'active';
-      const plan = a.plan ?? item.plan ?? 'prepaid';
+      const user_id: string = item.user_id ?? p.user_id ?? a.user_id ?? '';
+      const email: string = p.email ?? item.email ?? '-';
+      const display_name: string | null = p.display_name ?? item.display_name ?? null;
+      const role: 'admin' | 'member' = (p.role ?? item.role ?? 'member') as any;
+      const status: 'pending' | 'active' | 'suspended' = (p.status ?? item.status ?? 'active') as any;
+      const plan: string = a.plan ?? item.plan ?? 'prepaid';
 
+      // normalize permissions
+      const tarot = pickPerm(permsObj, 'tarot');
+      const natal = pickPerm(permsObj, 'natal');
+      const palm  = pickPerm(permsObj, 'palm');
+
+      const permissions: MembersRow['permissions'] = {
+        ...permsObj,
+        ...(tarot !== undefined ? { tarot } : {}),
+        ...(natal !== undefined ? { natal } : {}),
+        ...(palm  !== undefined ? { palm  } : {}),
+      };
+
+      // normalize credit balance
       const credit_balance =
         Number(
-          a.carry_balance ?? a.balance ?? item.carry_balance ?? item.balance ?? 0
+          a.carry_balance ?? a.balance ?? a.credit_balance ??
+          item.carry_balance ?? item.balance ?? item.credit_balance ?? 0
         ) || 0;
 
       return {
@@ -73,7 +105,7 @@ export default function MembersClient() {
         display_name,
         role,
         status,
-        permissions: perms,
+        permissions,
         credit_balance,
         balance: credit_balance,
         carry_balance: credit_balance,
@@ -97,20 +129,24 @@ export default function MembersClient() {
 
     return () => {
       ignore = true;
-      sub.subscription.unsubscribe();
+      sub?.subscription?.unsubscribe?.();
     };
   }, []);
 
-  const toggle = async (r: Row, key: 'tarot' | 'natal' | 'palm', next: boolean) => {
+  const toggle = async (r: MembersRow, key: 'tarot' | 'natal' | 'palm', next: boolean) => {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     if (!token) return;
 
-    // optimistic update
+    // optimistic update (update ทั้ง permissions และ flatten field เผื่อ table อ่านตรง)
     setRows(prev =>
       prev.map(x =>
         x.user_id === r.user_id
-          ? { ...x, permissions: { ...x.permissions, [key]: next } }
+          ? {
+              ...x,
+              [key]: next as any,
+              permissions: { ...(x.permissions || {}), [key]: next },
+            }
           : x
       )
     );
@@ -129,7 +165,11 @@ export default function MembersClient() {
       setRows(prev =>
         prev.map(x =>
           x.user_id === r.user_id
-            ? { ...x, permissions: { ...x.permissions, [key]: !next } }
+            ? {
+                ...x,
+                [key]: !next as any,
+                permissions: { ...(x.permissions || {}), [key]: !next },
+              }
             : x
         )
       );
@@ -137,7 +177,7 @@ export default function MembersClient() {
     }
   };
 
-  const topup = async (r: Row, amount: number, note?: string) => {
+  const topup = async (r: MembersRow, amount: number, note?: string) => {
     if (!Number.isFinite(amount) || amount === 0) return;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
@@ -161,26 +201,14 @@ export default function MembersClient() {
       let msg = 'เติมเครดิตไม่สำเร็จ';
       try {
         const errBody = await res.json();
-        // รองรับรูปแบบ error จาก API ที่เพิ่มไว้
-        const {
-          message,
-          error,
-          details,
-          hint,
-          code,
-          status,
-          meta,
-        } = errBody || {};
+        const { message, error, details, hint, code, status, meta } = errBody || {};
         const m =
           message ||
           error ||
           meta?.message ||
           meta?.error ||
           (typeof errBody === 'string' ? errBody : null);
-        const extra =
-          [code || status, details, hint]
-            .filter(Boolean)
-            .join(' | ');
+        const extra = [code || status, details, hint].filter(Boolean).join(' | ');
         msg = [m || msg, extra].filter(Boolean).join('\n');
         console.error('admin topup failed', res.status, errBody);
       } catch {

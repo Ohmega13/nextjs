@@ -2,19 +2,46 @@
 
 import React from 'react';
 
-type Row = {
+export type Row = {
   user_id: string;
   email: string | null;
-  role: string;
-  status: string;
+  role: 'admin' | 'member';
+  status: 'pending' | 'active' | 'suspended';
   display_name: string | null;
-  tarot: boolean;
-  natal: boolean;
-  palm: boolean;
-  credit_balance?: number; // from legacy API
+  // primary keys we intend to use
+  tarot?: boolean | number | null;
+  natal?: boolean | number | null;
+  palm?: boolean | number | null;
+  // possible aliases coming from Supabase (fallbacks)
+  can_tarot?: boolean | number | null;
+  can_natal?: boolean | number | null;
+  can_palm?: boolean | number | null;
+  allow_tarot?: boolean | number | null;
+  allow_natal?: boolean | number | null;
+  allow_palm?: boolean | number | null;
+  is_tarot_enabled?: boolean | number | null;
+  is_natal_enabled?: boolean | number | null;
+  is_palm_enabled?: boolean | number | null;
+  // balances from various sources
+  credit_balance?: number;
   carry_balance?: number;
-  balance?: number;        // from /api/admin/credits
+  balance?: number;
 };
+
+function readBool(r: any, key: 'tarot' | 'natal' | 'palm'): boolean {
+  const aliasMap: Record<'tarot' | 'natal' | 'palm', string[]> = {
+    tarot: ['tarot', 'can_tarot', 'allow_tarot', 'is_tarot_enabled'],
+    natal: ['natal', 'can_natal', 'allow_natal', 'is_natal_enabled'],
+    palm:  ['palm',  'can_palm',  'allow_palm',  'is_palm_enabled'],
+  };
+  for (const k of aliasMap[key]) {
+    const v = r?.[k];
+    if (typeof v === 'boolean') return v;
+    if (v === 0 || v === 1) return !!v;
+    if (v === 'true' || v === 'false') return v === 'true';
+  }
+  return false;
+}
 
 type Props = {
   rows: Row[];
@@ -92,7 +119,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={!!r.tarot}
+                    checked={readBool(r, 'tarot')}
                     onChange={(e) => toggle(r, 'tarot', e.target.checked)}
                     aria-label={`ให้สิทธิ์ Tarot กับ ${r.email ?? '-'}`}
                   />
@@ -104,7 +131,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={!!r.natal}
+                    checked={readBool(r, 'natal')}
                     onChange={(e) => toggle(r, 'natal', e.target.checked)}
                     aria-label={`ให้สิทธิ์ พื้นดวง กับ ${r.email ?? '-'}`}
                   />
@@ -116,7 +143,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={!!r.palm}
+                    checked={readBool(r, 'palm')}
                     onChange={(e) => toggle(r, 'palm', e.target.checked)}
                     aria-label={`ให้สิทธิ์ ลายมือ กับ ${r.email ?? '-'}`}
                   />
