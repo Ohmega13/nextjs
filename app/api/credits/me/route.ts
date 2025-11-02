@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
   // 1) query string first
   const url = new URL(req.url);
@@ -35,7 +39,7 @@ function makeSupabase() {
   const SUPABASE_KEY =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const cookieStore = cookies();
+  const cookieStore: any = cookies() as any;
 
   return createServerClient(SUPABASE_URL, SUPABASE_KEY, {
     cookies: {
@@ -43,10 +47,10 @@ function makeSupabase() {
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options?: any) {
-        cookieStore.set({ name, value, ...(options ?? {}) });
+        cookieStore?.set?.({ name, value, ...(options ?? {}) });
       },
       remove(name: string, options?: any) {
-        cookieStore.set({
+        cookieStore?.set?.({
           name,
           value: "",
           ...(options ?? {}),
