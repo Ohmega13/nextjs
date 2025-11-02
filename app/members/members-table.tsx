@@ -8,6 +8,12 @@ export type Row = {
   role: 'admin' | 'member';
   status: 'pending' | 'active' | 'suspended';
   display_name: string | null;
+  permissions?: {
+    tarot?: boolean | number | string | null;
+    natal?: boolean | number | string | null;
+    palm?: boolean | number | string | null;
+  };
+  credits_remaining?: number | null;
   // primary keys we intend to use
   tarot?: boolean | number | null;
   natal?: boolean | number | null;
@@ -29,6 +35,13 @@ export type Row = {
 };
 
 function readBool(r: any, key: 'tarot' | 'natal' | 'palm'): boolean {
+  // 1) Preferred: nested permissions object
+  const fromPerms = r?.permissions?.[key];
+  if (typeof fromPerms === 'boolean') return fromPerms;
+  if (fromPerms === 0 || fromPerms === 1) return !!fromPerms;
+  if (fromPerms === 'true' || fromPerms === 'false') return fromPerms === 'true';
+
+  // 2) Legacy/alias keys on the root row
   const aliasMap: Record<'tarot' | 'natal' | 'palm', string[]> = {
     tarot: ['tarot', 'can_tarot', 'allow_tarot', 'is_tarot_enabled'],
     natal: ['natal', 'can_natal', 'allow_natal', 'is_natal_enabled'],
@@ -51,7 +64,11 @@ type Props = {
 
 export default function MembersTable({ rows, toggle, topup }: Props) {
   const renderBalance = (r: Row) => {
-    const v = (r as any)?.balance ?? (r as any)?.carry_balance ?? (r as any)?.credit_balance;
+    const v =
+      (r as any)?.credits_remaining ??
+      (r as any)?.balance ??
+      (r as any)?.carry_balance ??
+      (r as any)?.credit_balance;
     if (v === null || v === undefined) {
       return <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
     }

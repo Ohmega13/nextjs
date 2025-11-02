@@ -94,14 +94,14 @@ export default function MembersClient() {
       const display_name: string | null = item.display_name ?? p.display_name ?? null;
       const role: 'admin' | 'member' = (item.role ?? p.role ?? 'member') as any;
       const status: 'pending' | 'active' | 'suspended' = (item.status ?? p.status ?? 'active') as any;
-      const plan: string = item.plan ?? a.plan ?? 'prepaid';
 
+      // อนุญาตหลายชื่อคีย์ และ coercion ให้เป็น boolean เสมอ
       const tarotFlag = item.tarot !== undefined ? coerceBool(item.tarot) : (pickPerm(permsObj, 'tarot') ?? coerceBool(permsObj?.tarot));
       const natalFlag = item.natal !== undefined ? coerceBool(item.natal) : (pickPerm(permsObj, 'natal') ?? coerceBool(permsObj?.natal));
       const palmFlag  = item.palm  !== undefined ? coerceBool(item.palm)  : (pickPerm(permsObj, 'palm')  ?? coerceBool(permsObj?.palm));
 
-      // เครดิตจากคอลัมน์รวมใน view (credits_remaining) หรือชื่อเก่า ๆ
-      const credit_balance =
+      // เครดิตจาก view (credits_remaining) หรือชื่อเดิม ๆ และแปลงเป็น number เสมอ
+      const credits_remaining =
         Number(
           item.credits_remaining ??
           item.credit_balance ??
@@ -110,20 +110,19 @@ export default function MembersClient() {
           0
         ) || 0;
 
-      return {
+      // คืนเฉพาะฟิลด์ที่ MembersTable ต้องใช้
+      const row: MembersRow = {
         user_id,
         email,
         display_name,
         role,
         status,
-        tarot: tarotFlag,
-        natal: natalFlag,
-        palm: palmFlag,
-        credit_balance,
-        balance: credit_balance,
-        carry_balance: credit_balance,
-        plan,
+        credits_remaining,
+        tarot: !!tarotFlag,
+        natal: !!natalFlag,
+        palm: !!palmFlag,
       };
+      return row;
     });
 
     setRows(mappedRows);
