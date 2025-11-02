@@ -26,6 +26,21 @@ async function ensureAdmin(req: Request) {
   }
 }
 
+function corsHeaders() {
+  return {
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, content-type',
+  };
+}
+
+export async function OPTIONS() {
+  return NextResponse.json({ ok: true }, { headers: corsHeaders() });
+}
+
 export async function GET(req: Request) {
   try {
     await ensureAdmin(req);
@@ -70,14 +85,8 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json(
-      { rows },
-      {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          Pragma: 'no-cache',
-          Expires: '0',
-        },
-      }
+      { ok: true, rows },
+      { headers: corsHeaders() }
     );
   } catch (e: any) {
     console.error('/api/admin/members error:', e?.message || e, e?.stack);
@@ -88,6 +97,6 @@ export async function GET(req: Request) {
         : e?.message === 'FORBIDDEN'
         ? 403
         : 500);
-    return NextResponse.json({ error: e?.message ?? 'INTERNAL' }, { status: code });
+    return NextResponse.json({ ok: false, error: e?.message ?? 'INTERNAL' }, { status: code, headers: corsHeaders() });
   }
 }

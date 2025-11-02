@@ -1,5 +1,29 @@
 'use client';
+
 import React from 'react';
+
+// Helper: tolerate different column names from Supabase (e.g., tarot, tarot_enabled, can_tarot, tarotEnabled, allow_tarot)
+function pickPerm(p: Record<string, any> | undefined, base: string): boolean {
+  if (!p) return false;
+  const candidates = [
+    base,
+    `${base}_enabled`,
+    `can_${base}`,
+    `${base}Enabled`,
+    `${base}Allow`,
+    `allow_${base}`,
+  ];
+  for (const k of candidates) {
+    if (k in p) {
+      const v = (p as any)[k];
+      if (typeof v === 'boolean') return v;
+      if (v === 1 || v === '1' || v === 'true' || v === 't') return true;
+      if (v === 0 || v === '0' || v === 'false' || v === 'f') return false;
+    }
+  }
+  // fallback
+  return !!(p as any)[base];
+}
 
 type Row = {
   user_id: string;
@@ -94,7 +118,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={!!r.permissions?.tarot}
+                    checked={pickPerm(r.permissions, 'tarot')}
                     onChange={(e) => toggle(r, 'tarot', e.target.checked)}
                     aria-label={`ให้สิทธิ์ Tarot กับ ${r.email}`}
                   />
@@ -106,7 +130,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={!!r.permissions?.natal}
+                    checked={pickPerm(r.permissions, 'natal')}
                     onChange={(e) => toggle(r, 'natal', e.target.checked)}
                     aria-label={`ให้สิทธิ์ พื้นดวง กับ ${r.email}`}
                   />
@@ -118,7 +142,7 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   <input
                     type="checkbox"
                     className="h-4 w-4"
-                    checked={!!r.permissions?.palm}
+                    checked={pickPerm(r.permissions, 'palm')}
                     onChange={(e) => toggle(r, 'palm', e.target.checked)}
                     aria-label={`ให้สิทธิ์ ลายมือ กับ ${r.email}`}
                   />
