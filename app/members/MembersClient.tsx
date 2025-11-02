@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import MembersTable type { Row as MembersRow } from './members-table';
+import MembersTable from './members-table';
+import type { Row as MembersRow } from './members-table';
 
 /**
  * Coerce various truthy/falsy representations from Supabase into boolean
@@ -80,16 +81,20 @@ export default function MembersClient() {
       const status: 'pending' | 'active' | 'suspended' = (p.status ?? item.status ?? 'active') as any;
       const plan: string = a.plan ?? item.plan ?? 'prepaid';
 
-      // normalize permissions
       const tarot = pickPerm(permsObj, 'tarot');
       const natal = pickPerm(permsObj, 'natal');
       const palm  = pickPerm(permsObj, 'palm');
 
+      // Ensure boolean top-level flags exist to match MembersTable.Row
+      const tarotFlag = (tarot !== undefined ? tarot : coerceBool(permsObj?.tarot));
+      const natalFlag = (natal !== undefined ? natal : coerceBool(permsObj?.natal));
+      const palmFlag  = (palm  !== undefined ? palm  : coerceBool(permsObj?.palm));
+
       const permissions: MembersRow['permissions'] = {
         ...permsObj,
-        ...(tarot !== undefined ? { tarot } : {}),
-        ...(natal !== undefined ? { natal } : {}),
-        ...(palm  !== undefined ? { palm  } : {}),
+        tarot: tarotFlag,
+        natal: natalFlag,
+        palm:  palmFlag,
       };
 
       // normalize credit balance
@@ -105,6 +110,10 @@ export default function MembersClient() {
         display_name,
         role,
         status,
+        // flattened flags for table columns & optimistic updates
+        tarot: tarotFlag,
+        natal: natalFlag,
+        palm:  palmFlag,
         permissions,
         credit_balance,
         balance: credit_balance,
