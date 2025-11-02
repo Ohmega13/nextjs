@@ -110,6 +110,14 @@ function pickAnalysisText(r?: { payload?: any; content?: string | null }) {
 // --------------------------------------------------------------------------
 
 export default function TarotReadingPage() {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, _session) => {
+      loadCredits(clientId ?? undefined);
+      window.dispatchEvent(new CustomEvent('credits:refresh'));
+    });
+    return () => { sub.subscription?.unsubscribe?.(); };
+  }, [clientId, loadCredits, supabase]);
   const [role, setRole] = useState<'admin' | 'member'>('member');
   const [clientId, setClientId] = useState<string | null>(null);
 
@@ -917,10 +925,3 @@ export default function TarotReadingPage() {
     </PermissionGate>
   );
 }
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, _session) => {
-      loadCredits(clientId ?? undefined);
-      window.dispatchEvent(new CustomEvent('credits:refresh'));
-    });
-    return () => { sub.subscription?.unsubscribe?.(); };
-  }, [clientId, loadCredits]);
