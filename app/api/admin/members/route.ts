@@ -7,7 +7,7 @@ import { assertAdmin, supaAdmin } from '@/lib/supabaseAdmin';
 /**
  * Ensure requester is an admin.
  * - Uses Authorization header validated by assertAdmin()
- * - Throws NO_AUTH when header/token is missing or invalid
+ * - Returns 401/403 instead of throwing generic errors
  */
 async function ensureAdmin(req: Request) {
   const authz = req.headers.get('authorization') || undefined;
@@ -16,7 +16,14 @@ async function ensureAdmin(req: Request) {
     err.status = 401;
     throw err;
   }
-  await assertAdmin(authz);
+  try {
+    await assertAdmin(authz);
+  } catch (e: any) {
+    // Normalize all auth failures to 401/403 so the UI doesn't see 500
+    const err: any = new Error(e?.message === 'FORBIDDEN' ? 'FORBIDDEN' : 'BAD_AUTH');
+    err.status = e?.message === 'FORBIDDEN' ? 403 : 401;
+    throw err;
+  }
 }
 
 export async function GET(req: Request) {
@@ -40,7 +47,13 @@ export async function GET(req: Request) {
       `)
       .order('created_at', { ascending: false });
 
-    if (vErr) throw vErr;
+    if (vErr) {
+      // Surface the underlying DB error in logs and return a typed message
+      console.error('/api/admin/members supabase error:', vErr);
+      const err: any = new Error('DB_ERROR');
+      err.status = 500;
+      throw err;
+    }
 
     // Normalize for the admin UI (ensure primitives / fallbacks)
     const rows = (vrows ?? []).map((r: any) => ({
@@ -61,8 +74,8 @@ export async function GET(req: Request) {
       {
         headers: {
           'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0',
+          Pragma: 'no-cache',
+          Expires: '0',
         },
       }
     );
