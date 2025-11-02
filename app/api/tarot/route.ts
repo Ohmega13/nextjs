@@ -932,8 +932,9 @@ export async function POST(req: NextRequest) {
               { status: 402 }
             );
           }
+          const { ok: _okIgnored, ...acctRest } = acct as any;
           spentVia = "table";
-          creditDebug = { ok: true, path: "table", ...acct, ruleKey: normalizeRuleKey(featureKey) };
+          creditDebug = { ok: true, path: "table", ...acctRest, ruleKey: normalizeRuleKey(featureKey) };
         }
       }
     }
