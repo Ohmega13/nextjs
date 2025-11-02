@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /** Build Supabase server client bound to user's cookies (for auth). */
-async function getSupabaseServer() {
-  const cookieStore = await cookies();
-  const headerStore = await headers();
+function getSupabaseServer() {
+  const cookieStore = cookies();
+  const headerStore = headers();
 
   // Forwarded headers help Supabase Auth detect host/proto behind Vercel proxy
   const mergedHeaders: Record<string, string> = {};
@@ -78,7 +78,7 @@ async function assertAdminCookie() {
     return { ok: true as const };
   }
 
-  const supabase = await getSupabaseServer();
+  const supabase = getSupabaseServer();
 
   // 1) Must have a logged-in user
   const { data: { user }, error } = await supabase.auth.getUser();
@@ -115,11 +115,11 @@ async function resolveBalance(userId: string) {
   // 1) Fast path via view
   const v1 = await svc
     .from("v_admin_members")
-    .select("carry_balance")
+    .select("credits_remaining")
     .eq("user_id", userId)
     .maybeSingle();
-  if (!v1.error && typeof v1.data?.carry_balance === "number") {
-    return Number(v1.data.carry_balance);
+  if (!v1.error && typeof v1.data?.credits_remaining === "number") {
+    return Number(v1.data.credits_remaining);
   }
 
   // 2) RPC
@@ -181,7 +181,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await svc
       .from("v_admin_members")
-      .select("user_id, email, display_name, role, status, carry_balance")
+      .select("user_id, email, display_name, role, status, credits_remaining")
       .order("display_name", { ascending: true });
 
     if (error) throw error;
@@ -196,7 +196,7 @@ export async function GET(req: Request) {
         status: r.status ?? null,
       },
       account: null,
-      balance: Number(r.carry_balance ?? 0),
+      balance: Number(r.credits_remaining ?? 0),
     }));
 
     return NextResponse.json(
