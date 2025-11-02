@@ -846,147 +846,125 @@ export async function POST(req: NextRequest) {
 
 
     // ----- Credit deduction (bucket-aware with proper fallbacks) -----
-    // First, prefer using the same source of truth as UI (balance view + usage ledger)
+    // NOTE: Re-ordered preference to reduce 402:
+    // 1) credit_accounts.carry_balance (authoritative, fastest)
+    // 2) legacy `credits` table adjustment (if present)
+    // 3) rules/usage/accounts flow (for environments that rely on rules + ledgers)
+    // The previous version checked a balance VIEW first then tried rules,
+    // which could fail under RLS or missing rules. This order is more robust.
+
     const primaryBucket =
       (featureKey.split("_")[0] === "tarot") ? "tarot" :
       (featureKey.split("_")[0] === "palm")  ? "palm"  :
       (featureKey.split("_")[0] === "natal") ? "natal" :
       featureKey.split("_")[0];
 
-    // choose writer: if admin spending for others and service-role available, write with service-role
-    const writerClient = (isAdmin && targetUserId !== user.id && !!serviceClient) ? serviceClient : supabase;
+    // Always prefer service-role for writes if available (even for self) to avoid RLS edge cases.
+    const writerClient = (serviceClient ?? supabase) as any;
+    const creditClient = (serviceClient ?? supabase) as any;
 
     const bucketsToTry = [featureKey, primaryBucket, "tarot", "global"].filter(
       (v, i, a) => typeof v === "string" && a.indexOf(v) === i
     );
 
-    const viaView = await tryDeductViaBalanceView({
-      reader: serviceClient ?? supabase,
+    let spentVia: "view-check" | "view+usage" | "table" = "table";
+    let creditDebug: any = null;
+
+    // 1) Try direct account deduction first
+    const acctTry = await tryDeductFromCreditAccounts({
+      reader: creditClient,
       writer: writerClient,
       targetUserId,
-      bucket: primaryBucket,
-      featureKey,
       cost,
-      createdBy: user.id,
-      bucketsToTry, // NEW
     });
 
-    // track which path we used for debug
-    let spentVia: "view-check" | "view+usage" | "table" = viaView.ok
-      ? (viaView.mode === "check_only" ? "view-check" : "view+usage")
-      : "table";
+    if (acctTry.ok) {
+      spentVia = "table";
+      creditDebug = {
+        ok: true,
+        path: "table",
+        deducted: cost,
+        balance: Number((acctTry as any).balance ?? 0),
+        ruleKey: normalizeRuleKey(featureKey),
+      };
 
-    // If the balance view path only *checked* availability, perform actual deduction now
-    let creditDebug: any = null;
-    if (viaView.ok && viaView.mode === "check_only") {
-      // First try normal deduction via rules/usage/accounts flow
-      creditDebug = await deductCredits({
-        supabase: serviceClient ?? supabase,
-        writer: writerClient,
-        userId: targetUserId,
-        featureKey,
-        bucket: primaryBucket,
-      });
+      // best-effort logs to keep ledgers in sync
+      try {
+        await writerClient.from("credit_transactions").insert({
+          user_id: targetUserId,
+          feature: normalizeRuleKey(featureKey),
+          bucket: primaryBucket,
+          amount: -cost,
+        });
+      } catch {}
+      try {
+        await writerClient.from(USAGE_TABLE).insert({
+          user_id: targetUserId,
+          feature: normalizeRuleKey(featureKey),
+          bucket: primaryBucket,
+          cost,
+        });
+      } catch {}
+    } else {
+      // 2) Try legacy `credits` table adjustment
+      let legacyTry: any = null;
+      try {
+        legacyTry = await adjustLegacyCreditsTable({
+          client: writerClient,
+          userId: targetUserId,
+          cost,
+          bucketsToTry,
+        });
+      } catch (e) {
+        legacyTry = { ok: false, reason: "legacy_adjust_exception", detail: String((e as any)?.message ?? e) };
+      }
 
-      if (!creditDebug?.ok) {
-        // 1) Try to deduct from legacy `credits` table if that is the source of the balance view
-        let legacyTry: any = null;
-        try {
-          legacyTry = await adjustLegacyCreditsTable({
-            client: writerClient,
-            userId: targetUserId,
-            cost,
-            bucketsToTry,
-          });
-        } catch (e) {
-          legacyTry = { ok: false, reason: "legacy_adjust_exception", detail: String((e as any)?.message ?? e) };
-        }
+      if (legacyTry?.ok) {
+        spentVia = "table";
+        creditDebug = {
+          ok: true,
+          path: "table",
+          viaLegacy: true,
+          deducted: cost,
+          legacy: legacyTry,
+          ruleKey: normalizeRuleKey(featureKey),
+        };
+      } else {
+        // 3) Finally, try rules/usage/accounts flow (will also update credit_accounts)
+        const ruleFlow = await deductCredits({
+          supabase: creditClient,
+          writer: writerClient,
+          userId: targetUserId,
+          featureKey,
+          bucket: primaryBucket,
+        });
 
-        if (legacyTry?.ok) {
-          // Succeeded via legacy table; treat as table-path for typing,
-          // but keep a marker that it came from legacy.
-          spentVia = "table";
-          creditDebug = {
-            ok: true,
-            path: "table",
-            viaLegacy: true,
-            deducted: cost,
-            legacy: legacyTry,
-            ruleKey: normalizeRuleKey(featureKey),
-          };
-        } else {
-          // 2) Fallback to credit_accounts (carry_balance) with optimistic concurrency
-          const acct = await tryDeductFromCreditAccounts({
-            reader: serviceClient ?? supabase,
+        if (!ruleFlow?.ok) {
+          // As a last check, see if a balance VIEW says we actually have enough (for debugging only)
+          const viaView = await tryDeductViaBalanceView({
+            reader: creditClient,
             writer: writerClient,
             targetUserId,
+            bucket: primaryBucket,
+            featureKey,
             cost,
-          });
-          if (!acct.ok) {
-            return NextResponse.json(
-              {
-                ok: false,
-                error: "เครดิตไม่พอ หรือหักเครดิตไม่สำเร็จ",
-                debug: { viaView, creditDebug, legacyTry, acct, targetUserId, featureKey, cost, bucketsToTry }
-              },
-              { status: 402 }
-            );
-          }
-          const { ok: _okIgnored, ...acctRest } = acct as any;
-          spentVia = "table";
-          creditDebug = { ok: true, path: "table", ...acctRest, ruleKey: normalizeRuleKey(featureKey) };
-        }
-      }
-    }
-
-    if (!viaView.ok) {
-      // Fallback path 1: try credit_accounts.carry_balance
-      const acct = await tryDeductFromCreditAccounts({
-        reader: creditClient,
-        writer: writerClient,
-        targetUserId,
-        cost,
-      });
-
-      if (!acct.ok) {
-        // Fallback path 2: adjust legacy `credits` table (the same source many UIs use)
-        let legacyTry: any = null;
-        try {
-          legacyTry = await adjustLegacyCreditsTable({
-            client: writerClient,
-            userId: targetUserId,
-            cost,
+            createdBy: user.id,
             bucketsToTry,
           });
-        } catch (e) {
-          legacyTry = { ok: false, reason: "legacy_adjust_exception", detail: String((e as any)?.message ?? e) };
-        }
 
-        if (legacyTry?.ok) {
-          // Treat as succeeded via table path, but mark `viaLegacy`
-          spentVia = "table";
-          creditDebug = {
-            ok: true,
-            path: "table",
-            viaLegacy: true,
-            deducted: cost,
-            legacy: legacyTry,
-            ruleKey: normalizeRuleKey(featureKey),
-          };
-        } else {
-          // Still not enough; return 402 with rich debug
           return NextResponse.json(
             {
               ok: false,
               error: "เครดิตไม่พอ กรุณาเติมเครดิต หรือรอรีเซ็ตตามแพ็กเกจ",
               debug: {
-                reason: acct.reason,
-                balance: (acct as any).balance ?? null,
-                detail: (acct as any).detail ?? null,
+                reason: acctTry.reason ?? ruleFlow?.reason ?? "unknown",
+                balance: (acctTry as any).balance ?? null,
+                detail: (acctTry as any).detail ?? ruleFlow?.detail ?? null,
                 targetUserId,
                 featureKey,
                 cost,
                 bucketsToTry,
+                viaViewOk: viaView.ok ?? null,
                 viaViewReason: viaView.reason ?? null,
                 legacyTry,
               },
@@ -994,34 +972,16 @@ export async function POST(req: NextRequest) {
             { status: 402 }
           );
         }
-      } else {
-        // Success via direct credit_accounts update
+
         spentVia = "table";
         creditDebug = {
           ok: true,
           path: "table",
-          deducted: cost,
-          newBalance: Number((acct as any).balance ?? 0),
-          ruleKey: normalizeRuleKey(featureKey),
+          deducted: ruleFlow.deducted,
+          newBalance: ruleFlow.newBalance,
+          ruleKey: ruleFlow.ruleKey,
+          warn: ruleFlow.warn,
         };
-
-        // Also write logs so any view that depends on usage/transactions stays in sync
-        try {
-          await writerClient.from("credit_transactions").insert({
-            user_id: targetUserId,
-            feature: normalizeRuleKey(featureKey),
-            bucket: primaryBucket,
-            amount: -cost,
-          });
-        } catch {}
-        try {
-          await writerClient.from(USAGE_TABLE).insert({
-            user_id: targetUserId,
-            feature: normalizeRuleKey(featureKey),
-            bucket: primaryBucket,
-            cost,
-          });
-        } catch {}
       }
     }
 

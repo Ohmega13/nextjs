@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,40 +38,21 @@ function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
 }
 
 /**
- * Create a Supabase server client that reads/writes auth cookies
- * via next/headers cookies() adapter.
+ * Create a Supabase admin client for server (no cookies needed).
  */
-async function makeSupabase() {
+function makeSupabase() {
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const SUPABASE_KEY =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SERVICE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  const cookieStore = await cookies();
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Supabase env missing");
+  }
 
-  return createServerClient(SUPABASE_URL, SUPABASE_KEY, {
-    cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
-      },
-      set(name: string, value: string, options?: any) {
-        try {
-          cookieStore.set(name, value, options);
-        } catch {}
-      },
-      remove(name: string, options?: any) {
-        try {
-          // Next 15 has delete(); keep set("", expired) as fallback if needed
-          // @ts-ignore
-          if (typeof cookieStore.delete === 'function') {
-            // @ts-ignore
-            cookieStore.delete(name);
-          } else {
-            cookieStore.set(name, '', { ...(options ?? {}), expires: new Date(0) });
-          }
-        } catch {}
-      },
-    },
+  return createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false },
   });
 }
 
@@ -126,7 +106,7 @@ function respond200(payload: {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await makeSupabase();
+    const supabase = makeSupabase();
 
     // 1) Try reading session user (best effort)
     const {

@@ -190,6 +190,13 @@ export default function TarotReadingPage() {
         headers['x-ddt-targetuser'] = uid;
         headers['x-ddt-target-user-id'] = uid;
       }
+      // Forward URL context so the API route can reconstruct NextRequest URL
+      try {
+        const loc = window.location;
+        headers['x-url'] = loc.href;
+        headers['x-forwarded-host'] = loc.host;
+        headers['x-forwarded-proto'] = loc.protocol.replace(':','');
+      } catch {}
       // Attach Supabase access token if available (helps when cookies are not forwarded)
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -203,6 +210,26 @@ export default function TarotReadingPage() {
         credentials: 'include',
         headers,
       });
+
+      // Fallback retry: some proxies strip custom headers
+      if (!res.ok) {
+        try {
+          const res2 = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+            headers: { accept: 'application/json' },
+          });
+          if (res2.ok) {
+            const j2 = await res2.json().catch(() => 0);
+            const nb2 = typeof j2 === 'number' ? j2 : extractBalance(j2);
+            if (Number.isFinite(nb2)) {
+              setCredits(nb2 as number);
+              return;
+            }
+          }
+        } catch {}
+      }
 
       // Try parse JSON; if parse fails, fall back to 0
       let next = 0;
@@ -258,6 +285,12 @@ export default function TarotReadingPage() {
         headers['x-ddt-target-user-id'] = uid;
       }
       try {
+        const loc = window.location;
+        headers['x-url'] = loc.href;
+        headers['x-forwarded-host'] = loc.host;
+        headers['x-forwarded-proto'] = loc.protocol.replace(':','');
+      } catch {}
+      try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
         if (token) headers['authorization'] = `Bearer ${token}`;
@@ -269,6 +302,23 @@ export default function TarotReadingPage() {
         credentials: 'include',
         headers,
       });
+
+      // Fallback retry: some proxies strip custom headers
+      if (!r.ok) {
+        try {
+          const r2 = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+            headers: { accept: 'application/json' },
+          });
+          if (r2.ok) {
+            const j2 = await r2.json().catch(() => 0);
+            const nb2 = typeof j2 === 'number' ? j2 : extractBalance(j2);
+            if (Number.isFinite(nb2)) return nb2 as number;
+          }
+        } catch {}
+      }
 
       let v = 0;
       try {
@@ -867,3 +917,10 @@ export default function TarotReadingPage() {
     </PermissionGate>
   );
 }
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, _session) => {
+      loadCredits(clientId ?? undefined);
+      window.dispatchEvent(new CustomEvent('credits:refresh'));
+    });
+    return () => { sub.subscription?.unsubscribe?.(); };
+  }, [clientId, loadCredits]);
