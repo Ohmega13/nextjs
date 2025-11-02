@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /** Build Supabase server client bound to user's cookies (for auth). */
-function getSupabaseServer() {
-  const cookieStore = cookies();
-  const headerStore = headers();
+async function getSupabaseServer() {
+  const cookieStore = await cookies();
+  const headerStore = await headers();
 
   // Forwarded headers help Supabase Auth detect host/proto behind Vercel proxy
   const mergedHeaders: Record<string, string> = {};
@@ -78,7 +78,7 @@ async function assertAdminCookie() {
     return { ok: true as const };
   }
 
-  const supabase = getSupabaseServer();
+  const supabase = await getSupabaseServer();
 
   // 1) Must have a logged-in user
   const { data: { user }, error } = await supabase.auth.getUser();
