@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
 import MembersTable from './members-table';
 import type { Row as MembersRow } from './members-table';
 
@@ -90,13 +88,6 @@ export default function MembersClient() {
       const natalFlag = (natal !== undefined ? natal : coerceBool(permsObj?.natal));
       const palmFlag  = (palm  !== undefined ? palm  : coerceBool(permsObj?.palm));
 
-      const permissions: MembersRow['permissions'] = {
-        ...permsObj,
-        tarot: tarotFlag,
-        natal: natalFlag,
-        palm:  palmFlag,
-      };
-
       // normalize credit balance
       const credit_balance =
         Number(
@@ -114,7 +105,6 @@ export default function MembersClient() {
         tarot: tarotFlag,
         natal: natalFlag,
         palm:  palmFlag,
-        permissions,
         credit_balance,
         balance: credit_balance,
         carry_balance: credit_balance,
@@ -151,11 +141,7 @@ export default function MembersClient() {
     setRows(prev =>
       prev.map(x =>
         x.user_id === r.user_id
-          ? {
-              ...x,
-              [key]: next as any,
-              permissions: { ...(x.permissions || {}), [key]: next },
-            }
+          ? { ...x, [key]: next as any }
           : x
       )
     );
@@ -174,11 +160,7 @@ export default function MembersClient() {
       setRows(prev =>
         prev.map(x =>
           x.user_id === r.user_id
-            ? {
-                ...x,
-                [key]: !next as any,
-                permissions: { ...(x.permissions || {}), [key]: !next },
-              }
+            ? { ...x, [key]: !next as any }
             : x
         )
       );
