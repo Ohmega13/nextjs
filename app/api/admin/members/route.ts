@@ -22,8 +22,8 @@ export async function GET(req: Request) {
   try {
     await ensureAdmin(req);
 
-    // Query canonical members directly from profiles + joined credit_accounts
-    const { data, error } = await supaAdmin
+    // 1) Pull canonical user rows from profiles + joined credit_accounts
+    const { data: profileRows, error: profileErr } = await supaAdmin
       .from('profiles')
       .select(`
         user_id,
@@ -36,28 +36,71 @@ export async function GET(req: Request) {
       `)
       .order('display_name', { ascending: true });
 
-    if (error) throw error;
+    if (profileErr) throw profileErr;
 
-    // Normalize to the shape the admin UI expects
-    const rows = (data ?? []).map((row: any) => {
-      const perms = row?.permissions ?? {};
-      const toBool = (v: any) =>
-        typeof v === 'boolean' ? v : (typeof v === 'string' ? v.toLowerCase() === 'true' : !!v);
-      const balance =
-        (Array.isArray(row?.credit_accounts) && row.credit_accounts[0]?.balance) ?? 0;
+    // Collect user_ids for a single batched permissions query
+    const userIds = (profileRows ?? []).map((r: any) => r.user_id).filter(Boolean);
 
-      return {
-        user_id: row.user_id,
-        email: row.email ?? '-',
-        display_name: row.display_name ?? '',
-        role: row.role ?? 'member',
-        status: row.status ?? 'inactive',
-        tarot: toBool(perms?.tarot),
-        natal: toBool(perms?.natal),
-        palm: toBool(perms?.palm),
-        carry_balance: balance,
-      };
-    }).sort((a: any, b: any) => (a.display_name || '').localeCompare(b.display_name || ''));
+    // 2) Pull row‑level overrides from permissions table (if present)
+    //    Expected schema: permissions(user_id uuid, feature text, allowed boolean)
+    let permsByUser: Record<string, Record<string, boolean>> = {};
+    if (userIds.length) {
+      const { data: permRows, error: permErr } = await supaAdmin
+        .from('permissions')
+        .select('user_id, feature, allowed')
+        .in('user_id', userIds);
+
+      if (permErr?.code !== 'PGRST116') { // ignore "relation not found" cases
+        if (permErr) throw permErr;
+      }
+
+      for (const p of permRows ?? []) {
+        if (!permsByUser[p.user_id]) permsByUser[p.user_id] = {};
+        // normalize feature keys to lower-case simple names
+        const key = String(p.feature || '').toLowerCase();
+        if (key) permsByUser[p.user_id][key] = !!p.allowed;
+      }
+    }
+
+    const toBool = (v: any) =>
+      typeof v === 'boolean'
+        ? v
+        : typeof v === 'string'
+        ? v.toLowerCase() === 'true'
+        : !!v;
+
+    // 3) Normalize for the admin UI
+    const rows = (profileRows ?? [])
+      .map((row: any) => {
+        // base permissions from profiles.permissions JSONB
+        const basePerms = (row?.permissions && typeof row.permissions === 'object')
+          ? row.permissions
+          : {};
+
+        // overlay any rows from the permissions table
+        const overlay = permsByUser[row.user_id] || {};
+        const mergedPerms = {
+          tarot: overlay.tarot ?? toBool((basePerms as any).tarot),
+          natal: overlay.natal ?? toBool((basePerms as any).natal),
+          palm:  overlay.palm  ?? toBool((basePerms as any).palm),
+        };
+
+        const balance =
+          (Array.isArray(row?.credit_accounts) && row.credit_accounts[0]?.balance) ?? 0;
+
+        return {
+          user_id: row.user_id,
+          email: row.email ?? '-',
+          display_name: row.display_name ?? '',
+          role: row.role ?? 'member',
+          status: row.status ?? 'inactive',
+          tarot: !!mergedPerms.tarot,
+          natal: !!mergedPerms.natal,
+          palm:  !!mergedPerms.palm,
+          carry_balance: balance,
+        };
+      })
+      .sort((a: any, b: any) => (a.display_name || '').localeCompare(b.display_name || ''));
 
     return NextResponse.json({ rows });
   } catch (e: any) {
