@@ -48,6 +48,7 @@ function extractRows(payload: any): any[] {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload.rows)) return payload.rows;
   if (Array.isArray(payload.data)) return payload.data;
+  if (payload.data && Array.isArray(payload.data.rows)) return payload.data.rows;
   if (Array.isArray(payload.items)) return payload.items;
   if (payload.result && Array.isArray(payload.result.rows)) return payload.result.rows;
   return [];
@@ -100,15 +101,38 @@ export default function MembersClient() {
       const natalFlag = item.natal !== undefined ? coerceBool(item.natal) : (pickPerm(permsObj, 'natal') ?? coerceBool(permsObj?.natal));
       const palmFlag  = item.palm  !== undefined ? coerceBool(item.palm)  : (pickPerm(permsObj, 'palm')  ?? coerceBool(permsObj?.palm));
 
-      // เครดิตจาก view (credits_remaining) หรือชื่อเดิม ๆ และแปลงเป็น number เสมอ
-      const credits_remaining =
-        Number(
-          item.credits_remaining ??
-          item.credit_balance ??
-          item.balance ??
-          a.carry_balance ?? a.balance ?? a.credit_balance ??
-          0
-        ) || 0;
+      // --- Credits: accept several possible names and numeric/string/bigint representations ---
+      const rawCredits =
+        item.credits_remaining ??
+        item.credits_remain ??
+        item.creditsRemain ??
+        item.credits ??
+        item.credit_remaining ??
+        item.creditRemain ??
+        item.credit ??
+        item.balance ??
+        item.carry_balance ??
+        (a ? (a.carry_balance ?? a.balance ?? a.credit_balance) : undefined);
+
+      let credits_remaining = 0;
+      if (rawCredits !== undefined && rawCredits !== null) {
+        // if bigint or string -> parse to number safely
+        if (typeof rawCredits === 'bigint') {
+          credits_remaining = Number(rawCredits);
+        } else if (typeof rawCredits === 'string') {
+          const n = Number(rawCredits.replace?.(/[, ]/g, '') ?? rawCredits);
+          credits_remaining = Number.isFinite(n) ? n : 0;
+        } else if (typeof rawCredits === 'number') {
+          credits_remaining = rawCredits;
+        } else {
+          try {
+            const n = Number(rawCredits as any);
+            credits_remaining = Number.isFinite(n) ? n : 0;
+          } catch {
+            credits_remaining = 0;
+          }
+        }
+      }
 
       // คืนเฉพาะฟิลด์ที่ MembersTable ต้องใช้
       const row: MembersRow = {

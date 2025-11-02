@@ -8,53 +8,11 @@ export type Row = {
   role: 'admin' | 'member';
   status: 'pending' | 'active' | 'suspended';
   display_name: string | null;
-  permissions?: {
-    tarot?: boolean | number | string | null;
-    natal?: boolean | number | string | null;
-    palm?: boolean | number | string | null;
-  };
-  credits_remaining?: number | null;
-  // primary keys we intend to use
-  tarot?: boolean | number | null;
-  natal?: boolean | number | null;
-  palm?: boolean | number | null;
-  // possible aliases coming from Supabase (fallbacks)
-  can_tarot?: boolean | number | null;
-  can_natal?: boolean | number | null;
-  can_palm?: boolean | number | null;
-  allow_tarot?: boolean | number | null;
-  allow_natal?: boolean | number | null;
-  allow_palm?: boolean | number | null;
-  is_tarot_enabled?: boolean | number | null;
-  is_natal_enabled?: boolean | number | null;
-  is_palm_enabled?: boolean | number | null;
-  // balances from various sources
-  credit_balance?: number;
-  carry_balance?: number;
-  balance?: number;
+  credits_remaining: number;          // normalized: always a number
+  tarot: boolean;                     // normalized: always a boolean
+  natal: boolean;                     // normalized: always a boolean
+  palm: boolean;                      // normalized: always a boolean
 };
-
-function readBool(r: any, key: 'tarot' | 'natal' | 'palm'): boolean {
-  // 1) Preferred: nested permissions object
-  const fromPerms = r?.permissions?.[key];
-  if (typeof fromPerms === 'boolean') return fromPerms;
-  if (fromPerms === 0 || fromPerms === 1) return !!fromPerms;
-  if (fromPerms === 'true' || fromPerms === 'false') return fromPerms === 'true';
-
-  // 2) Legacy/alias keys on the root row
-  const aliasMap: Record<'tarot' | 'natal' | 'palm', string[]> = {
-    tarot: ['tarot', 'can_tarot', 'allow_tarot', 'is_tarot_enabled'],
-    natal: ['natal', 'can_natal', 'allow_natal', 'is_natal_enabled'],
-    palm:  ['palm',  'can_palm',  'allow_palm',  'is_palm_enabled'],
-  };
-  for (const k of aliasMap[key]) {
-    const v = r?.[k];
-    if (typeof v === 'boolean') return v;
-    if (v === 0 || v === 1) return !!v;
-    if (v === 'true' || v === 'false') return v === 'true';
-  }
-  return false;
-}
 
 type Props = {
   rows: Row[];
@@ -64,19 +22,9 @@ type Props = {
 
 export default function MembersTable({ rows, toggle, topup }: Props) {
   const renderBalance = (r: Row) => {
-    const v =
-      (r as any)?.credits_remaining ??
-      (r as any)?.balance ??
-      (r as any)?.carry_balance ??
-      (r as any)?.credit_balance;
-    if (v === null || v === undefined) {
-      return <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
-    }
-    const n = Number(v);
-    if (!Number.isFinite(n)) {
-      return <span className="text-slate-400">กำลังโหลดเครดิต...</span>;
-    }
-    return n.toLocaleString('th-TH');
+    // rows.credits_remaining ถูก normalize แล้วเป็น number เสมอ
+    const n = Number(r.credits_remaining ?? 0);
+    return Number.isFinite(n) ? n.toLocaleString('th-TH') : '0';
   };
 
   return (
@@ -90,9 +38,9 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
             <th className="px-3 py-2">สถานะ</th>
             <th className="px-3 py-2 text-right">เครดิตคงเหลือ</th>
             <th className="px-3 py-2">เติมเครดิต</th>
-            <th className="px-3 py-2">Tarot</th>
-            <th className="px-3 py-2">พื้นดวง</th>
-            <th className="px-3 py-2">ลายมือ</th>
+            <th className="px-3 py-2 text-center">Tarot</th>
+            <th className="px-3 py-2 text-center">พื้นดวง</th>
+            <th className="px-3 py-2 text-center">ลายมือ</th>
           </tr>
         </thead>
         <tbody>
@@ -131,40 +79,35 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
                   เติมเครดิต
                 </button>
               </td>
+
               <td className="px-3 py-2 text-center">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={readBool(r, 'tarot')}
-                    onChange={(e) => toggle(r, 'tarot', e.target.checked)}
-                    aria-label={`ให้สิทธิ์ Tarot กับ ${r.email ?? '-'}`}
-                  />
-                </label>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={!!r.tarot}
+                  onChange={(e) => toggle(r, 'tarot', e.target.checked)}
+                  aria-label={`ให้สิทธิ์ Tarot กับ ${r.email ?? '-'}`}
+                />
               </td>
 
               <td className="px-3 py-2 text-center">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={readBool(r, 'natal')}
-                    onChange={(e) => toggle(r, 'natal', e.target.checked)}
-                    aria-label={`ให้สิทธิ์ พื้นดวง กับ ${r.email ?? '-'}`}
-                  />
-                </label>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={!!r.natal}
+                  onChange={(e) => toggle(r, 'natal', e.target.checked)}
+                  aria-label={`ให้สิทธิ์ พื้นดวง กับ ${r.email ?? '-'}`}
+                />
               </td>
 
               <td className="px-3 py-2 text-center">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={readBool(r, 'palm')}
-                    onChange={(e) => toggle(r, 'palm', e.target.checked)}
-                    aria-label={`ให้สิทธิ์ ลายมือ กับ ${r.email ?? '-'}`}
-                  />
-                </label>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={!!r.palm}
+                  onChange={(e) => toggle(r, 'palm', e.target.checked)}
+                  aria-label={`ให้สิทธิ์ ลายมือ กับ ${r.email ?? '-'}`}
+                />
               </td>
             </tr>
           ))}
@@ -181,8 +124,8 @@ export default function MembersTable({ rows, toggle, topup }: Props) {
     </div>
   );
 }
-// Dropdown สำหรับเปลี่ยนสถานะสมาชิก
 
+// Dropdown สำหรับเปลี่ยนสถานะสมาชิก
 function StatusDropdown({ user_id, status }: { user_id: string; status: string }) {
   const [value, setValue] = React.useState(status);
   const [loading, setLoading] = React.useState(false);
@@ -198,14 +141,13 @@ function StatusDropdown({ user_id, status }: { user_id: string; status: string }
       });
       if (!res.ok) {
         alert('อัปเดตสถานะไม่สำเร็จ');
-        // revert select value
-        e.target.value = value;
+        e.target.value = value; // revert
       } else {
         setValue(nextValue);
       }
-    } catch (err) {
+    } catch {
       alert('อัปเดตสถานะไม่สำเร็จ');
-      e.target.value = value;
+      e.target.value = value; // revert
     }
     setLoading(false);
   };
