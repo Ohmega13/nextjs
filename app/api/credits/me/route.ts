@@ -6,8 +6,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+/**
+ * Resolve target user id from (in order):
+ * 1) query string
+ * 2) custom headers
+ * 3) cookies on the request
+ * 4) caller-provided fallback (e.g., session)
+ */
 function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
-  // 1) query string first
   const url = new URL(req.url);
   const qp =
     url.searchParams.get("user_id") ||
@@ -15,7 +21,6 @@ function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
     url.searchParams.get("userid");
   if (qp) return qp;
 
-  // 2) custom headers
   const h = req.headers;
   const hTarget =
     h.get("x-ddt-target-user") ||
@@ -24,16 +29,19 @@ function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
     h.get("x-user-id");
   if (hTarget) return hTarget;
 
-  // 3) cookies on the request object
+  // NextRequest already carries cookies()
   const c1 = req.cookies.get("ddt_uid")?.value;
   const c2 = req.cookies.get("sb-user-id")?.value;
   if (c1) return c1;
   if (c2) return c2;
 
-  // 4) fallback from caller (e.g., session user)
   return fallback;
 }
 
+/**
+ * Create a Supabase server client that reads/writes auth cookies
+ * via next/headers cookies() adapter.
+ */
 function makeSupabase() {
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const SUPABASE_KEY =
@@ -44,6 +52,7 @@ function makeSupabase() {
   return createServerClient(SUPABASE_URL, SUPABASE_KEY, {
     cookies: {
       get(name: string) {
+        // In Next 15, cookies() is synchronous.
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options?: any) {
@@ -61,48 +70,77 @@ function makeSupabase() {
   });
 }
 
+/**
+ * Normalize a balance value to a safe non-negative integer.
+ */
+function toSafeBalance(v: unknown): number {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.trunc(n));
+}
+
+/**
+ * Respond with both a flat payload (backward compatibility for the UI)
+ * and a nested `data` object (for future-proofing).
+ */
+function respond200(payload: {
+  user_id: string | null;
+  balance: number;
+  plan: string;
+  source: string;
+  updated_at?: string | null;
+}) {
+  const common = {
+    ok: true,
+    user_id: payload.user_id,
+    bucket: "tarot",
+    balance: payload.balance,
+    carry_balance: payload.balance,
+    credit: payload.balance,
+    credits: payload.balance,
+    amount: payload.balance,
+    remaining: payload.balance,
+    remaining_total: payload.balance,
+    plan: payload.plan,
+    source: payload.source,
+    updated_at: payload.updated_at ?? null,
+  };
+
+  return NextResponse.json(
+    {
+      ...common,
+      data: { ...common },
+    },
+    {
+      status: 200,
+      headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
+    }
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
     const supabase = makeSupabase();
 
-    // 1) Try to read current session user (best-effort)
+    // 1) Try reading session user (best effort)
     const {
       data: { user },
-      error: userErr,
     } = await supabase.auth.getUser();
 
-    // 2) Resolve target user from query/header/session (no 401 here)
-    const targetUserId =
-      getTargetUserIdFromReq(req, user?.id ?? null);
+    // 2) Allow query/header to override
+    const targetUserId = getTargetUserIdFromReq(req, user?.id ?? null);
 
-    // If we truly cannot identify a user, return 200 with zero balance
+    // If unidentified, do not break the UI: return zero balance
     if (!targetUserId) {
-      return NextResponse.json(
-        {
-          ok: true,
-          data: {
-            user_id: null,
-            bucket: "tarot",
-            balance: 0,
-            carry_balance: 0,
-            credit: 0,
-            credits: 0,
-            amount: 0,
-            remaining: 0,
-            remaining_total: 0,
-            plan: "prepaid",
-            source: "no_session",
-            note: "no user context; returning 0 instead of 401",
-          },
-        },
-        {
-          status: 200,
-          headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
-        }
-      );
+      return respond200({
+        user_id: null,
+        balance: 0,
+        plan: "prepaid",
+        source: "no_session",
+      });
     }
 
-    // 3) Primary source: credit_accounts
+    // 3) Primary source — credit_accounts
     const acct = await supabase
       .from("credit_accounts")
       .select("carry_balance, plan, updated_at")
@@ -110,34 +148,17 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
 
     if (!acct.error && acct.data) {
-      const bal = Number(acct.data.carry_balance ?? 0);
-      const safe = Number.isFinite(bal) ? Math.max(0, bal) : 0;
-      return NextResponse.json(
-        {
-          ok: true,
-          data: {
-            user_id: targetUserId,
-            bucket: "tarot",
-            balance: safe,
-            carry_balance: safe,
-            credit: safe,
-            credits: safe,
-            amount: safe,
-            remaining: safe,
-            remaining_total: safe,
-            plan: acct.data.plan ?? "prepaid",
-            updated_at: acct.data.updated_at ?? null,
-            source: "credit_accounts",
-          },
-        },
-        {
-          status: 200,
-          headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
-        }
-      );
+      const safe = toSafeBalance(acct.data.carry_balance);
+      return respond200({
+        user_id: targetUserId,
+        balance: safe,
+        plan: acct.data.plan ?? "prepaid",
+        source: "credit_accounts",
+        updated_at: acct.data.updated_at ?? null,
+      });
     }
 
-    // 4) Fallback: credits (legacy buckets)
+    // 4) Fallback — legacy `credits` table
     let legacyBalance = 0;
     try {
       const buckets = ["tarot_3", "tarot_weight", "tarot_10", "tarot", "global"];
@@ -151,42 +172,38 @@ export async function GET(req: NextRequest) {
 
       if (!legacy.error && legacy.data?.length) {
         const row = legacy.data[0];
-        const val = Number(row.remaining_total ?? row.remaining ?? 0);
-        legacyBalance = Number.isFinite(val) ? Math.max(0, val) : 0;
+        legacyBalance = toSafeBalance(row.remaining_total ?? row.remaining ?? 0);
       }
-    } catch (e) {
-      console.warn("Legacy credit fallback error", e);
+    } catch {
+      // swallow; we still respond with zeros
     }
 
-    return NextResponse.json(
-      {
-        ok: true,
-        data: {
-          user_id: targetUserId,
-          bucket: "tarot",
-          balance: legacyBalance,
-          carry_balance: legacyBalance,
-          credit: legacyBalance,
-          credits: legacyBalance,
-          amount: legacyBalance,
-          remaining: legacyBalance,
-          remaining_total: legacyBalance,
-          plan: "prepaid",
-          source: "credits_fallback",
-        },
-      },
-      {
-        status: 200,
-        headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" },
-      }
-    );
+    return respond200({
+      user_id: targetUserId,
+      balance: legacyBalance,
+      plan: "prepaid",
+      source: "credits_fallback",
+    });
   } catch (e: any) {
-    console.error("GET /api/credits/me error:", e);
-    // never break the UI with 5xx; return zero with ok:false for visibility
+    // Never return 5xx to avoid breaking the UI number
+    const msg = e?.message ?? String(e);
     return NextResponse.json(
       {
         ok: false,
-        error: e?.message ?? "internal_error",
+        error: msg,
+        // flat zeros
+        user_id: null,
+        bucket: "tarot",
+        balance: 0,
+        carry_balance: 0,
+        credit: 0,
+        credits: 0,
+        amount: 0,
+        remaining: 0,
+        remaining_total: 0,
+        plan: "prepaid",
+        source: "error_fallback",
+        // nested
         data: {
           user_id: null,
           bucket: "tarot",

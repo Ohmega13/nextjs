@@ -43,6 +43,23 @@ type ReadingRow = {
   content?: string | null; // <<< รับ content จาก DB (เผื่อ payload.analysis ว่าง)
 };
 
+/** Normalize any server response shape into a numeric balance */
+function extractBalance(raw: any): number {
+  const d = raw?.data ?? raw;
+  const n = Number(
+    d?.remaining_total ??
+    d?.remaining ??
+    d?.balance ??
+    d?.carry_balance ??
+    d?.credit ??
+    d?.credits?.balance ??
+    d?.creditsRemaining ??
+    d?.newBalance ?? // some API may return this naked
+    0
+  );
+  return Number.isFinite(n) ? n : 0;
+}
+
 // --- helpers ---------------------------------------------------------------
 
 function formatThaiDob(dob?: string | null) {
@@ -146,7 +163,7 @@ export default function TarotReadingPage() {
       // Determine target uid (admin can view other's credits)
       const uid =
         role === 'admin' && (targetUserId || clientId)
-          ? (targetUserId || clientId!) 
+          ? (targetUserId || clientId!)
           : '';
 
       // Build URL with cache buster so no intermediate cache can replay old balance
@@ -157,9 +174,9 @@ export default function TarotReadingPage() {
 
       // Always make a fresh request; send target uid via header as well for safety
       const headers: Record<string, string> = {
-        'accept': 'application/json',
+        accept: 'application/json',
         'cache-control': 'no-cache',
-        'pragma': 'no-cache',
+        pragma: 'no-cache',
       };
       if (uid) {
         headers['x-ddt-target-user'] = uid;
@@ -173,41 +190,15 @@ export default function TarotReadingPage() {
         headers,
       });
 
-      if (!res.ok) {
-        // On 402 (insufficient credit) we still want to refresh the visible number from payload if any
-        try {
-          const raw = await res.json();
-          const fb = raw?.data ?? raw;
-          const maybe = Number(
-            fb?.remaining_total ??
-            fb?.remaining ??
-            fb?.balance ??
-            fb?.carry_balance ??
-            fb?.credit ??
-            fb?.credits?.balance ??
-            0
-          );
-          setCredits(Number.isFinite(maybe) ? maybe : 0);
-        } catch {
-          setCredits(0);
-        }
-        return;
+      // Even on non-200, attempt to parse out the latest balance
+      let next = 0;
+      try {
+        const j = await res.json();
+        next = extractBalance(j);
+      } catch {
+        next = 0;
       }
-
-      const raw: any = await res.json();
-      const payload = raw?.data ?? raw;
-
-      const nextBal = Number(
-        payload?.remaining_total ??
-        payload?.remaining ??
-        payload?.balance ??
-        payload?.carry_balance ??
-        payload?.credit ??
-        payload?.credits?.balance ??
-        0
-      );
-
-      setCredits(Number.isFinite(nextBal) ? nextBal : 0);
+      setCredits(next);
     } catch {
       setCredits(0);
     }
@@ -225,64 +216,37 @@ export default function TarotReadingPage() {
   // ตรวจเครดิตก่อนเปิด modal หรือเรียก API จริง (helper)
   const checkCreditBeforeOpen = useCallback(async (): Promise<number> => {
     try {
-      // ถ้ายังไม่เคยโหลด ให้โหลดก่อน 1 ครั้ง
-      if (credits === null) {
-        await loadCredits(clientId ?? undefined);
-      }
-      if (role === 'admin' && clientId) {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
+      // force-load latest credits from the unified endpoint
+      const uid = role === 'admin' && clientId ? clientId : '';
+      const qs = new URLSearchParams();
+      if (uid) qs.set('user_id', uid);
+      qs.set('t', String(Date.now()));
+      const url = `/api/credits/me?${qs.toString()}`;
 
-        let r = await fetch(`/api/admin/credits?user_id=${encodeURIComponent(clientId)}`, {
-          method: 'GET',
-          cache: 'no-store',
-          credentials: 'include',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-
-        if (!r.ok) {
-          r = await fetch('/api/admin/credits', {
-            method: 'GET',
-            cache: 'no-store',
-            credentials: 'include',
-            headers: {
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              'x-ddt-target-user': clientId,
-              'X-DDT-Target-User': clientId,
-            },
-          });
-        }
-        if (!r.ok) return 0;
-        const j: any = await r.json();
-        const jd = j?.data ?? j;
-        const v = Number(
-          jd?.remaining_total ??
-          jd?.remaining ??
-          jd?.balance ??
-          jd?.carry_balance ??
-          jd?.credit ??
-          jd?.credits?.balance ??
-          0
-        );
-        return Number.isFinite(v) ? v : 0;
+      const headers: Record<string, string> = {
+        accept: 'application/json',
+        'cache-control': 'no-cache',
+        pragma: 'no-cache',
+      };
+      if (uid) {
+        headers['x-ddt-target-user'] = uid;
+        headers['X-DDT-Target-User'] = uid;
       }
-      const r = await fetch('/api/credits/me', {
+
+      const r = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
         credentials: 'include',
+        headers,
       });
-      if (!r.ok) return 0;
-      const j: any = await r.json();
-      const jd = j?.data ?? j;
-      const v = Number(
-        jd?.remaining_total ??
-        jd?.remaining ??
-        jd?.balance ??
-        jd?.carry_balance ??
-        jd?.credit ??
-        jd?.credits?.balance ??
-        0
-      );
+
+      let v = 0;
+      try {
+        const j = await r.json();
+        v = extractBalance(j);
+      } catch {
+        v = 0;
+      }
       return Number.isFinite(v) ? v : 0;
     } catch {
       return 0;
@@ -401,6 +365,21 @@ export default function TarotReadingPage() {
     let data: any = null;
     try { data = await res.json(); } catch {}
 
+    // Try to extract the balance from the primary payload first
+    let newBalanceFromPayload = extractBalance(data);
+    // If not found, attempt known debug paths
+    if (!Number.isFinite(newBalanceFromPayload) || newBalanceFromPayload === 0) {
+      const dbg = data?.debug?.creditDebug;
+      const nb = Number(
+        dbg?.newBalance ??
+        dbg?.after ??
+        data?.balanceAfter ??
+        data?.remaining_after ??
+        0
+      );
+      if (Number.isFinite(nb) && nb > 0) newBalanceFromPayload = nb;
+    }
+
     if (!res.ok || !data?.ok) {
       setIsDrawing(false);
       setShowConfirm(false);
@@ -467,29 +446,19 @@ export default function TarotReadingPage() {
       ...prev
     ]);
 
-    // อัปเดตเครดิตแบบ Optimistic: ใช้ค่าจาก debug.creditDebug.newBalance ถ้ามี
-    try {
-      const dbg = data?.debug?.creditDebug;
-      const newBal = Number(dbg?.newBalance);
-      if (Number.isFinite(newBal)) {
-        setCredits(newBal);
-      } else {
-        // ถ้าเซิร์ฟเวอร์ไม่ได้ส่งยอดใหม่มา ให้หักตาม cost ชั่วคราว แล้วค่อยซิงก์จริงทีหลัง
-        setCredits((prev) => {
-          const cur = Number(prev ?? 0);
-          return Number.isFinite(cur) ? Math.max(0, cur - cost) : cur;
-        });
-      }
-    } catch {}
+    // อัปเดตเครดิตแบบ Optimistic/Authoritative: ใช้ค่าจาก payload ก่อน ถ้าไม่มีค่อยหักตาม cost
+    if (Number.isFinite(newBalanceFromPayload) && newBalanceFromPayload >= 0) {
+      setCredits(newBalanceFromPayload);
+    } else {
+      setCredits((prev) => {
+        const cur = Number(prev ?? 0);
+        return Number.isFinite(cur) ? Math.max(0, cur - cost) : cur;
+      });
+    }
 
-    // รีเฟรชยอดเครดิตในเพจนี้ด้วย (ซิงก์จากเซิร์ฟเวอร์ให้ตรง 100%)
-    loadCredits(clientId ?? undefined).catch(() => {});
-    // รีเฟรชยอดเครดิตบนหัวเว็บ (ถ้ามี listener ฝั่ง TopNav)
-    try {
-      await fetch('/api/credits/me', { method: 'GET', cache: 'no-store' });
-      // ให้ส่วนหัวที่แสดงเครดิต สามารถฟัง event นี้เพื่ออัปเดต
-      window.dispatchEvent(new CustomEvent('credits:refresh'));
-    } catch {}
+    // รีเฟรชอีกครั้งแบบ authoritative และแจ้ง global header
+    await loadCredits(clientId ?? undefined).catch(() => {});
+    window.dispatchEvent(new CustomEvent('credits:refresh'));
 
     setIsDrawing(false);
     setShowConfirm(false);
@@ -578,8 +547,13 @@ export default function TarotReadingPage() {
   useEffect(() => {
     loadCredits(clientId ?? undefined);
     const onRefresh = () => loadCredits(clientId ?? undefined);
+    const onVisible = () => { if (!document.hidden) loadCredits(clientId ?? undefined); };
     window.addEventListener('credits:refresh', onRefresh);
-    return () => window.removeEventListener('credits:refresh', onRefresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('credits:refresh', onRefresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [clientId, role, loadCredits]);
 
   return (

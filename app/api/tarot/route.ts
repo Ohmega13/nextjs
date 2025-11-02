@@ -308,7 +308,7 @@ async function deductCredits(params: {
     bucket,
     amount: -cost,
   });
-  const usg = await writer.from("credit_usage").insert({
+  const usg = await writer.from(USAGE_TABLE).insert({
     user_id: userId,
     feature: ruleKey,
     bucket,
@@ -959,7 +959,7 @@ export async function POST(req: NextRequest) {
         });
       } catch {}
       try {
-        await writerClient.from("credit_usage").insert({
+        await writerClient.from(USAGE_TABLE).insert({
           user_id: targetUserId,
           feature: normalizeRuleKey(featureKey),
           bucket: primaryBucket,
@@ -1285,6 +1285,8 @@ export async function POST(req: NextRequest) {
       analysis: contentText,
       balance: typeof remainingNow === "number" ? remainingNow : undefined,
       remaining_total: typeof remainingNow === "number" ? remainingNow : undefined,
+      remaining: typeof remainingNow === "number" ? remainingNow : undefined,
+      creditsRemaining: typeof remainingNow === "number" ? remainingNow : undefined,
       credits: {
         balance: typeof remainingNow === "number" ? remainingNow : undefined,
         source: balanceSource,
