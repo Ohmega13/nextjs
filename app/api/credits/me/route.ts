@@ -42,29 +42,35 @@ function getTargetUserIdFromReq(req: NextRequest, fallback: string | null) {
  * Create a Supabase server client that reads/writes auth cookies
  * via next/headers cookies() adapter.
  */
-function makeSupabase() {
+async function makeSupabase() {
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const SUPABASE_KEY =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const cookieStore: any = cookies() as any;
+
+  const cookieStore = await cookies();
 
   return createServerClient(SUPABASE_URL, SUPABASE_KEY, {
     cookies: {
       get(name: string) {
-        // In Next 15, cookies() is synchronous.
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options?: any) {
-        cookieStore?.set?.({ name, value, ...(options ?? {}) });
+        try {
+          cookieStore.set(name, value, options);
+        } catch {}
       },
       remove(name: string, options?: any) {
-        cookieStore?.set?.({
-          name,
-          value: "",
-          ...(options ?? {}),
-          expires: new Date(0),
-        });
+        try {
+          // Next 15 has delete(); keep set("", expired) as fallback if needed
+          // @ts-ignore
+          if (typeof cookieStore.delete === 'function') {
+            // @ts-ignore
+            cookieStore.delete(name);
+          } else {
+            cookieStore.set(name, '', { ...(options ?? {}), expires: new Date(0) });
+          }
+        } catch {}
       },
     },
   });
@@ -120,7 +126,7 @@ function respond200(payload: {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = makeSupabase();
+    const supabase = await makeSupabase();
 
     // 1) Try reading session user (best effort)
     const {

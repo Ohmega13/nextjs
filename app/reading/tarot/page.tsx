@@ -160,28 +160,42 @@ export default function TarotReadingPage() {
 
   const loadCredits = useCallback(async (targetUserId?: string) => {
     try {
-      // Determine target uid (admin can view other's credits)
+      // Admin must select a client to show credits
+      if (role === 'admin' && !(targetUserId || clientId)) {
+        setCredits(null);
+        return;
+      }
       const uid =
         role === 'admin' && (targetUserId || clientId)
           ? (targetUserId || clientId!)
           : '';
 
-      // Build URL with cache buster so no intermediate cache can replay old balance
+      // Build URL with hard cache-buster
       const qs = new URLSearchParams();
       if (uid) qs.set('user_id', uid);
-      qs.set('t', String(Date.now()));
+      qs.set('t', `${Date.now()}`);
+      qs.set('_', Math.random().toString(36).slice(2));
       const url = `/api/credits/me?${qs.toString()}`;
 
-      // Always make a fresh request; send target uid via header as well for safety
+      // Prepare headers
       const headers: Record<string, string> = {
         accept: 'application/json',
-        'cache-control': 'no-cache',
+        'cache-control': 'no-cache, no-store, max-age=0',
         pragma: 'no-cache',
+        'x-no-cache': `${Date.now()}`,
       };
       if (uid) {
         headers['x-ddt-target-user'] = uid;
         headers['X-DDT-Target-User'] = uid;
+        headers['x-ddt-targetuser'] = uid;
+        headers['x-ddt-target-user-id'] = uid;
       }
+      // Attach Supabase access token if available (helps when cookies are not forwarded)
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) headers['authorization'] = `Bearer ${token}`;
+      } catch {}
 
       const res = await fetch(url, {
         method: 'GET',
@@ -190,15 +204,20 @@ export default function TarotReadingPage() {
         headers,
       });
 
-      // Even on non-200, attempt to parse out the latest balance
+      // Try parse JSON; if parse fails, fall back to 0
       let next = 0;
       try {
         const j = await res.json();
-        next = extractBalance(j);
+        // Support plain number or wrapped object
+        if (typeof j === 'number') {
+          next = j;
+        } else {
+          next = extractBalance(j);
+        }
       } catch {
         next = 0;
       }
-      setCredits(next);
+      setCredits(Number.isFinite(next) ? next : 0);
     } catch {
       setCredits(0);
     }
@@ -216,22 +235,33 @@ export default function TarotReadingPage() {
   // ตรวจเครดิตก่อนเปิด modal หรือเรียก API จริง (helper)
   const checkCreditBeforeOpen = useCallback(async (): Promise<number> => {
     try {
-      // force-load latest credits from the unified endpoint
+      // If admin but no selected client, treat as 0 to block purchase
+      if (role === 'admin' && !clientId) return 0;
+
       const uid = role === 'admin' && clientId ? clientId : '';
       const qs = new URLSearchParams();
       if (uid) qs.set('user_id', uid);
-      qs.set('t', String(Date.now()));
+      qs.set('t', `${Date.now()}`);
+      qs.set('_', Math.random().toString(36).slice(2));
       const url = `/api/credits/me?${qs.toString()}`;
 
       const headers: Record<string, string> = {
         accept: 'application/json',
-        'cache-control': 'no-cache',
+        'cache-control': 'no-cache, no-store, max-age=0',
         pragma: 'no-cache',
+        'x-no-cache': `${Date.now()}`,
       };
       if (uid) {
         headers['x-ddt-target-user'] = uid;
         headers['X-DDT-Target-User'] = uid;
+        headers['x-ddt-targetuser'] = uid;
+        headers['x-ddt-target-user-id'] = uid;
       }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) headers['authorization'] = `Bearer ${token}`;
+      } catch {}
 
       const r = await fetch(url, {
         method: 'GET',
@@ -243,7 +273,8 @@ export default function TarotReadingPage() {
       let v = 0;
       try {
         const j = await r.json();
-        v = extractBalance(j);
+        if (typeof j === 'number') v = j;
+        else v = extractBalance(j);
       } catch {
         v = 0;
       }
@@ -251,7 +282,13 @@ export default function TarotReadingPage() {
     } catch {
       return 0;
     }
-  }, [role, clientId, credits, loadCredits]);
+  }, [role, clientId]);
+  useEffect(() => {
+    // reset visible balance when switching context to prevent stale display
+    if (role === 'admin' && !clientId) {
+      setCredits(null);
+    }
+  }, [role, clientId]);
 
   // --- เปิดไพ่ + บันทึกผ่าน API Route ---
   async function handleDraw() {
@@ -447,8 +484,8 @@ export default function TarotReadingPage() {
     ]);
 
     // อัปเดตเครดิตแบบ Optimistic/Authoritative: ใช้ค่าจาก payload ก่อน ถ้าไม่มีค่อยหักตาม cost
-    if (Number.isFinite(newBalanceFromPayload) && newBalanceFromPayload >= 0) {
-      setCredits(newBalanceFromPayload);
+    if (Number.isFinite(newBalanceFromPayload)) {
+      setCredits(Math.max(0, Number(newBalanceFromPayload)));
     } else {
       setCredits((prev) => {
         const cur = Number(prev ?? 0);
@@ -563,7 +600,7 @@ export default function TarotReadingPage() {
           <h1 className="text-xl font-semibold">ไพ่ยิปซี (Tarot)</h1>
           <div className="flex items-center gap-2 text-sm">
             <span className="rounded-full border px-3 py-1 bg-white">
-              เครดิตคงเหลือ: {role === 'admin' && !clientId ? '—' : (credits ?? '—')}
+              เครดิตคงเหลือ: {role === 'admin' && !clientId ? '—' : ((credits ?? null) === null ? '—' : credits)}
             </span>
             <span className="rounded-full border px-3 py-1 bg-slate-50">
               ใช้ต่อครั้ง: {

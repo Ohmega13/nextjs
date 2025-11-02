@@ -879,6 +879,7 @@ export async function POST(req: NextRequest) {
     // If the balance view path only *checked* availability, perform actual deduction now
     let creditDebug: any = null;
     if (viaView.ok && viaView.mode === "check_only") {
+      // First try normal deduction via rules/usage/accounts flow
       creditDebug = await deductCredits({
         supabase: serviceClient ?? supabase,
         writer: writerClient,
@@ -887,26 +888,51 @@ export async function POST(req: NextRequest) {
         bucket: primaryBucket,
       });
 
-      // If the rule table is missing or write failed, fall back to direct account deduction
       if (!creditDebug?.ok) {
-        const acct = await tryDeductFromCreditAccounts({
-          reader: serviceClient ?? supabase,
-          writer: writerClient,
-          targetUserId,
-          cost,
-        });
-        if (!acct.ok) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: "เครดิตไม่พอ หรือหักเครดิตไม่สำเร็จ",
-              debug: { viaView, creditDebug, acct, targetUserId, featureKey, cost }
-            },
-            { status: 402 }
-          );
+        // 1) Try to deduct from legacy `credits` table if that is the source of the balance view
+        let legacyTry: any = null;
+        try {
+          legacyTry = await adjustLegacyCreditsTable({
+            client: writerClient,
+            userId: targetUserId,
+            cost,
+            bucketsToTry,
+          });
+        } catch (e) {
+          legacyTry = { ok: false, reason: "legacy_adjust_exception", detail: String((e as any)?.message ?? e) };
         }
-        spentVia = "table";
-        creditDebug = { fallback: "table", ...acct };
+
+        if (legacyTry?.ok) {
+          // Succeeded via legacy table; mark as spent and continue
+          spentVia = "legacy";
+          creditDebug = {
+            ok: true,
+            path: "legacy",
+            deducted: cost,
+            legacy: legacyTry,
+            ruleKey: normalizeRuleKey(featureKey),
+          };
+        } else {
+          // 2) Fallback to credit_accounts (carry_balance) with optimistic concurrency
+          const acct = await tryDeductFromCreditAccounts({
+            reader: serviceClient ?? supabase,
+            writer: writerClient,
+            targetUserId,
+            cost,
+          });
+          if (!acct.ok) {
+            return NextResponse.json(
+              {
+                ok: false,
+                error: "เครดิตไม่พอ หรือหักเครดิตไม่สำเร็จ",
+                debug: { viaView, creditDebug, legacyTry, acct, targetUserId, featureKey, cost, bucketsToTry }
+              },
+              { status: 402 }
+            );
+          }
+          spentVia = "table";
+          creditDebug = { ok: true, path: "table", ...acct, ruleKey: normalizeRuleKey(featureKey) };
+        }
       }
     }
 
